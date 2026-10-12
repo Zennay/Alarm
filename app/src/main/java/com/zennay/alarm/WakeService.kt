@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -40,16 +41,54 @@ class WakeService : Service(), SensorEventListener {
     private var wakeLock: PowerManager.WakeLock? = null
     private var batteryReceiverRegistered = false
     private val handler = Handler(Looper.getMainLooper())
+    private val chargingConfirmation = ChargingConfirmation()
+    private var lastChargingState: ChargingGate.State? = null
+
+    /**
+     * Always recheck the *current* system state. Broadcasts can be stale and
+     * are never sufficient on their own to clear a ringing alarm.
+     */
+    private fun confirmCharging(): Boolean {
+        if (!ringing || !AlarmStore.isRinging(this)) return false
+        val state = try { ChargingGate.stateNow(this) } catch (error: Exception) {
+            Log.w(TAG, "Battery status unavailable; keep alarming", error)
+            chargingConfirmation.reset()
+            return false
+        }
+        if (state != lastChargingState) {
+            Log.i(TAG, "CHARGE_STATUS plugged=${state.plugged} status=${state.status} charging=${state.charging}")
+            lastChargingState = state
+        }
+        if (chargingConfirmation.observe(state.charging, SystemClock.elapsedRealtime())) {
+            dismissForCharging()
+            return true
+        }
+        return false
+    }
+
+    private val maintainAudio = object : Runnable {
+        override fun run() {
+            if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
+            val audio = alarmAudio
+            if (audio?.isPlaying() != true) {
+                Log.w(TAG, "Alarm audio no longer playing; restarting")
+                try {
+                    if (audio == null) alarmAudio = AlarmAudioPlayer(this@WakeService).also { it.start() }
+                    else audio.start()
+                } catch (error: Exception) {
+                    Log.e(TAG, "Cannot restore alarm audio; retry next check", error)
+                }
+            }
+            handler.postDelayed(this, AUDIO_POLL_MS)
+        }
+    }
 
     // Some Wear OS builds cap a single long-running vibrator waveform.
     // Re-arm the requested haptics while the persisted alarm is still active.
     private val keepVibrating = object : Runnable {
         override fun run() {
             if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
-            if (ChargingGate.isChargingNow(this@WakeService)) {
-                dismissForCharging()
-                return
-            }
+            if (confirmCharging()) return
             startVibration()
             handler.postDelayed(this, VIBRATION_REARM_MS)
         }
@@ -58,20 +97,15 @@ class WakeService : Service(), SensorEventListener {
     private val chargeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
-            val charging = when (intent.action) {
-                Intent.ACTION_BATTERY_CHANGED -> ChargingGate.fromIntent(intent)
-                Intent.ACTION_POWER_CONNECTED -> ChargingGate.isChargingNow(this@WakeService)
-                else -> false
-            }
-            if (charging) dismissForCharging()
+            if (intent.action == Intent.ACTION_BATTERY_CHANGED ||
+                intent.action == Intent.ACTION_POWER_CONNECTED) confirmCharging()
         }
     }
 
     private val pollCharging = object : Runnable {
         override fun run() {
             if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
-            if (ChargingGate.isChargingNow(this@WakeService)) dismissForCharging()
-            else handler.postDelayed(this, CHARGING_POLL_MS)
+            if (!confirmCharging()) handler.postDelayed(this, CHARGING_POLL_MS)
         }
     }
 
@@ -159,6 +193,9 @@ class WakeService : Service(), SensorEventListener {
     private fun ring() {
         if (ringing || !AlarmStore.read(this).enabled) return
         ringing = true
+        Log.i(TAG, "RING_START at=${System.currentTimeMillis()} service=${hashCode()}")
+        chargingConfirmation.reset()
+        lastChargingState = null
         sensors.unregisterListener(this)
         gate = null
         AlarmStore.setRinging(this, true)
@@ -166,32 +203,26 @@ class WakeService : Service(), SensorEventListener {
         foreground("Tijd om op te staan", "Plaats je horloge op de oplader om te stoppen")
         hold(90L * 60_000)
 
-        // A watch already charging at the alarm time dismisses immediately.
-        // Registration also handles charge transition with the screen off.
+        // A watch already charging at ring start is dismissed after a
+        // short stable confirmation period, not one stale battery broadcast.
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)
         }
         try {
-            val sticky = if (Build.VERSION.SDK_INT >= 33)
+            if (Build.VERSION.SDK_INT >= 33)
                 registerReceiver(chargeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             else {
                 @Suppress("DEPRECATION")
-                val previous = registerReceiver(chargeReceiver, filter)
-                previous
+                registerReceiver(chargeReceiver, filter)
             }
             batteryReceiverRegistered = true
-            if (ChargingGate.fromIntent(sticky)) {
-                dismissForCharging()
-                return
-            }
         } catch (e: Exception) {
             Log.w(TAG, "Charging broadcast registration failed; polling remains", e)
         }
-        if (ChargingGate.isChargingNow(this)) {
-            dismissForCharging()
-            return
-        }
+        // Keep the output running until a *continuous* charging signal is
+        // confirmed, even when power status changes momentarily.
+        confirmCharging()
         handler.removeCallbacks(pollCharging)
         handler.postDelayed(pollCharging, CHARGING_POLL_MS)
 
@@ -204,6 +235,8 @@ class WakeService : Service(), SensorEventListener {
         } catch (error: Exception) {
             Log.e(TAG, "Failed to start audio; vibration still active", error)
         }
+        handler.removeCallbacks(maintainAudio)
+        handler.postDelayed(maintainAudio, AUDIO_POLL_MS)
         try {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -233,6 +266,7 @@ class WakeService : Service(), SensorEventListener {
         ringing = false
         handler.removeCallbacks(pollCharging)
         handler.removeCallbacks(keepVibrating)
+        handler.removeCallbacks(maintainAudio)
         AlarmScheduler.cancel(this)
         AlarmStore.setDisabled(this)
         vibrator?.cancel()
@@ -262,6 +296,7 @@ class WakeService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     override fun onDestroy() {
+        Log.w(TAG, "SERVICE_DESTROYED ringing=${AlarmStore.isRinging(this)}")
         // An Android lifecycle teardown is NOT user dismissal. Keep a recovery
         // wakeup pending so the charge-only alarm can resume after service loss.
         if (AlarmStore.isRinging(this)) {
@@ -270,6 +305,7 @@ class WakeService : Service(), SensorEventListener {
         }
         handler.removeCallbacks(pollCharging)
         handler.removeCallbacks(keepVibrating)
+        handler.removeCallbacks(maintainAudio)
         disarmChargingReceiver()
         sensors.unregisterListener(this)
         vibrator?.cancel()
@@ -284,8 +320,9 @@ class WakeService : Service(), SensorEventListener {
         private const val CHANNEL = "alarm_haptics"
         private const val CHANNEL_TRACKING = "alarm_tracking"
         private const val NOTIFICATION_ID = 41
-        private const val CHARGING_POLL_MS = 2_000L
-        private const val VIBRATION_REARM_MS = 40_000L
+        private const val CHARGING_POLL_MS = 500L
+        private const val VIBRATION_REARM_MS = 4_000L
+        private const val AUDIO_POLL_MS = 4_000L
         const val MONITOR = "com.zennay.alarm.MONITOR"
         const val RING = "com.zennay.alarm.RING"
 
