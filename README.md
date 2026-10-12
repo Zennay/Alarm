@@ -17,7 +17,7 @@ A silent Wear OS alarm for the Samsung Galaxy Watch 7 (SM-L315F). **Work in prog
 
 On the user's SM-L315F `adb shell pm list features | grep -i nfc` returned
 `android.hardware.nfc.any`, `.ese`, `.hce`, `.hcef`, but **not** `android.hardware.nfc`.
-The standard Android NFC reader API (`enableReaderMode`) cannot be assumed to work on this device. HCE makes the watch appear as a *card* to an active reader; a passive NFC sticker cannot read or deactivate the watch. **No new NFC reader is within scope.** NFC-tag dismissal is therefore deferred until real on-device reader-mode evidence exists; do not advertise it as implemented.
+Android specifies that `NfcAdapter.enableReaderMode()` throws `UnsupportedOperationException` when `PackageManager.FEATURE_NFC` is absent. Since this exact device did not advertise that reader feature, the normal NFC-sticker workflow is not supported through public Android APIs. HCE makes the watch appear as a *card* to an active reader; a passive NFC sticker cannot read or deactivate the watch. **No new NFC reader is within scope.** NFC-tag dismissal is therefore deferred until real on-device reader-mode evidence exists; do not advertise it as implemented.
 
 ## Smart wake evidence and limitations
 
@@ -33,3 +33,12 @@ References:
 ## Target architecture
 
 Kotlin Android/Wear OS, Android AlarmManager for exact boundary scheduling (subject to user-granted exact alarm permission), wake-window sensor service, vibration foreground service, persisted active-alarm config, explicit wake mission and fallback, reboot rescheduling. Device tests are necessary for notifications/full-screen alarm restrictions, Wear OS DND and max vibration strength, battery life, and OEM background process behavior. **Do not treat CI build success as proof of device reliability.**
+
+## Current implementation (feature branch)
+
+The Wear OS Kotlin MVP implements fixed and smart alarms, motion-trigger gating, native time pickers, vibration, an explicit 20-step dismissal mission, a 5-second safety override, and an optional HTTPS hook. This **does not mean the APK has passed hardware tests**, nor that Google Home lights or passive NFC-tag dismissal work.
+
+- Scientific basis and study plan: [docs/SLEEP-RESEARCH.md](docs/SLEEP-RESEARCH.md)
+- Explicit in/out-of-scope and delivery gates: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)
+- ADB / self-hosted CI build and test instructions: [docs/DEVICE-TEST.md](docs/DEVICE-TEST.md)
+- Reviewable implementation: [PR #1](https://github.com/Zennay/Alarm/pull/1)
