@@ -2,6 +2,9 @@ name: Android Wear OS build
 on:
   push:
   pull_request:
+concurrency:
+  group: alarm-android-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   compile-and-test:
     runs-on: [self-hosted, Linux, X64]
