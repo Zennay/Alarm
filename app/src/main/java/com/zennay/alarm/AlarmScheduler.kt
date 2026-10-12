@@ -64,14 +64,20 @@ object AlarmScheduler {
         val at = SystemClock.elapsedRealtime() + delayMs.coerceAtLeast(10_000L)
         val pending = intent(c, AlarmReceiver.RECOVER, 103)
         try {
-            if (canSchedule(c)) {
-                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
-            } else {
+            try {
+                if (canSchedule(c)) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
+                } else {
+                    am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
+                }
+            } catch (e: SecurityException) {
+                Log.w("AlarmRecovery", "Exact wakeup denied, trying non-exact recovery", e)
                 am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
             }
-        } catch (e: SecurityException) {
-            Log.w("AlarmRecovery", "Exact wakeup denied, trying non-exact recovery", e)
-            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, pending)
+        } catch (e: Exception) {
+            // Recovery is best-effort. A watchdog failure must NEVER abort
+            // the real alarm service or its continuous playback.
+            Log.e("AlarmRecovery", "Cannot schedule rescue alarm", e)
         }
     }
 
