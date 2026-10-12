@@ -87,6 +87,10 @@ class MainActivity : Activity() {
         modes.setOnCheckedChangeListener { _, _ -> refresh() }
 
         button("Wekker instellen") {
+            if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) {
+                Toast.makeText(this, "De actieve wekker moet eerst worden afgerond", Toast.LENGTH_SHORT).show()
+                return@button
+            }
             if (!AlarmScheduler.canSchedule(this)) {
                 Toast.makeText(this, "Geef toestemming voor exacte alarmen", Toast.LENGTH_LONG).show()
                 startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
