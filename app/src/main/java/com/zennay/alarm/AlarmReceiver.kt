@@ -30,8 +30,18 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val config = AlarmStore.read(context)
         if (!config.enabled) return
-        // A reboot cannot covertly shift a one-shot alarm to tomorrow.
-        if (config.latestMs <= System.currentTimeMillis()) {
+        // Clock sync (TIME_SET) and timezone changes must NEVER dismiss an
+        // already-ringing alarm merely because its original minute passed.
+        if (AlarmStore.isRinging(context)) {
+            AlarmScheduler.scheduleRecovery(context)
+            if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+                WakeService.send(context, WakeService.RING)
+            }
+            return
+        }
+        // For an alarm not yet ringing, an expired one-shot can be cleared.
+        if (AlarmContinuationPolicy.shouldExpire(
+                System.currentTimeMillis(), config.latestMs, alreadyRinging = false)) {
             AlarmStore.setDisabled(context)
             return
         }
