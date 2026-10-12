@@ -1,6 +1,6 @@
 # Galaxy Watch 7 — oplader als enige manier om alarm te stoppen
 
-Alarm v0.3.2: een **actief** trillingsalarm stopt wanneer Android meldt dat het horloge oplaadt (of vol is en nog aan de lader ligt). NFC, stappen, lampen en snooze zijn verwijderd. Test op SM-L315F.
+Alarm v0.3.3: een **actief** trillingsalarm stopt wanneer Android meldt dat het horloge oplaadt (of vol is en nog aan de lader ligt). NFC, stappen, lampen en snooze zijn verwijderd. Test op SM-L315F.
 
 ## Direct downloaden
 
@@ -22,8 +22,8 @@ Indien `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: deze preview gebruikt een door de G
 1. **Geen alarm actief:** leg horloge op lader, kies 'Controleer oplader'. Verwacht 'Opladen gedetecteerd ✓'; er mag geen alarm starten.
 2. Verwijder horloge van lader; controleer 'Nog geen opladen gedetecteerd'.
 3. Gebruik **niet** de knop **Trilmotor testen (1 sec)** om de volledige wekker te beoordelen: die knop trilt bewust maar 1 seconde. Kies **Volledige wekker testen (continu)** en bevestig, met lader binnen handbereik.
-4. Horloge trilt en laat het gekozen geluid herhalen; geen snooze- of stopknop. Scherm uit en app verlaten mogen niet bedoeld tot stop leiden.
-5. **Minuutgrens-regressie:** laat het horloge zonder oplader minstens **3 volledige minuten** doorgaan, inclusief 3 overgangen `HH:mm:59` → `HH:mm+1:00`. Trillen en geluid moeten doorgaan en de app moet **WEKKER ACTIEF** blijven tonen. Ook na scherm uit/terugkeren mag de wekker niet worden gewist. Controleer in `logcat` dat `CHARGING_DETECTED` niet verschijnt. Een tijdsynchronisatie/TIME_SET mag het actieve alarm ook niet wissen.
+4. Horloge **trilt zonder enig piep- of wekkergeluid**; geen snooze- of stopknop. Scherm uit en app verlaten mogen niet bedoeld tot stop leiden.
+5. **Minuutgrens-regressie:** laat het horloge zonder oplader minstens **3 volledige minuten** doorgaan, inclusief 3 overgangen `HH:mm:59` → `HH:mm+1:00`. Alleen de trillingen moeten doorgaan en de app moet **WEKKER ACTIEF** blijven tonen. Ook na scherm uit/terugkeren mag de wekker niet worden gewist. Controleer in `logcat` dat `CHARGING_DETECTED` niet verschijnt. Een tijdsynchronisatie/TIME_SET mag het actieve alarm ook niet wissen.
 6. Zet horloge terug op de lader. Zodra het horloge daadwerkelijk opladen meldt, moeten vibratie en notificatie verdwijnen, zonder knoppen.
 7. Pak horloge weer van lader: alarm blijft uit.
 8. Probeer de test terwijl het horloge al oplaadt: alarm wordt meteen als voltooid beschouwd.
@@ -32,7 +32,7 @@ Indien `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: deze preview gebruikt een door de G
 
 ## Herstel na service-onderbreking
 
-Versie 0.3.2 bewaart een actief alarm ook voorbij de oorspronkelijke minuut en registreert een herstellende `AlarmManager`-melding zolang de wekker actief is. Bij normale werking ververst hij periodiek de trilreeks. Het herstel is **best-effort**: Wear OS mag processen nog steeds onderbreken en de exacte timing van wakeups uitstellen; hardwaretests blijven verplicht.
+Versie 0.3.3 bewaart een actief alarm ook voorbij de oorspronkelijke minuut en registreert een herstellende `AlarmManager`-melding zolang de wekker actief is. Bij normale werking ververst hij periodiek de trilreeks. De app bevat geen alarm-audiospeler en gebruikt expliciet stille notificatiekanalen. Het herstel is **best-effort**: Wear OS mag processen nog steeds onderbreken en de exacte timing van wakeups uitstellen; hardwaretests blijven verplicht.
 
 ## Acceptatie
 
