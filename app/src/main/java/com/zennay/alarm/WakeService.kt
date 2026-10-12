@@ -28,6 +28,7 @@ import android.util.Log
  * Watch-only wake service.
  * When ringing, there is exactly one app-level dismissal condition: the
  * operating system reports that the watch is receiving charge.
+ * The alarm is vibration-only: this service never plays audio.
  *
  * No NFC tag, step count, light webhook, snooze or interactive stop command.
  * The OS can still force-stop the application; do not claim it is unkillable.
@@ -37,7 +38,6 @@ class WakeService : Service(), SensorEventListener {
     private var gate: MotionGate? = null
     private var ringing = false
     private var vibrator: Vibrator? = null
-    private var alarmAudio: AlarmAudioPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var batteryReceiverRegistered = false
     private val handler = Handler(Looper.getMainLooper())
@@ -64,23 +64,6 @@ class WakeService : Service(), SensorEventListener {
             return true
         }
         return false
-    }
-
-    private val maintainAudio = object : Runnable {
-        override fun run() {
-            if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
-            val audio = alarmAudio
-            if (audio?.isPlaying() != true) {
-                Log.w(TAG, "Alarm audio no longer playing; restarting")
-                try {
-                    if (audio == null) alarmAudio = AlarmAudioPlayer(this@WakeService).also { it.start() }
-                    else audio.start()
-                } catch (error: Exception) {
-                    Log.e(TAG, "Cannot restore alarm audio; retry next check", error)
-                }
-            }
-            handler.postDelayed(this, AUDIO_POLL_MS)
-        }
     }
 
     // Some Wear OS builds cap a single long-running vibrator waveform.
@@ -150,6 +133,8 @@ class WakeService : Service(), SensorEventListener {
             .setContentIntent(pending)
             .setCategory(Notification.CATEGORY_ALARM)
             .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
         if (ringing) builder.setFullScreenIntent(pending, true)
         startForeground(NOTIFICATION_ID, builder.build())
     }
@@ -230,14 +215,6 @@ class WakeService : Service(), SensorEventListener {
         handler.removeCallbacks(keepVibrating)
         handler.postDelayed(keepVibrating, VIBRATION_REARM_MS)
         try {
-            alarmAudio?.stop()
-            alarmAudio = AlarmAudioPlayer(this).also { it.start() }
-        } catch (error: Exception) {
-            Log.e(TAG, "Failed to start audio; vibration still active", error)
-        }
-        handler.removeCallbacks(maintainAudio)
-        handler.postDelayed(maintainAudio, AUDIO_POLL_MS)
-        try {
             startActivity(
                 Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -256,7 +233,7 @@ class WakeService : Service(), SensorEventListener {
         try {
             vibrator?.vibrate(effect)
         } catch (e: Exception) {
-            Log.w(TAG, "Cannot re-arm haptic alarm; audio continues", e)
+            Log.w(TAG, "Cannot re-arm haptic alarm; will retry", e)
         }
     }
 
@@ -266,12 +243,9 @@ class WakeService : Service(), SensorEventListener {
         ringing = false
         handler.removeCallbacks(pollCharging)
         handler.removeCallbacks(keepVibrating)
-        handler.removeCallbacks(maintainAudio)
         AlarmScheduler.cancel(this)
         AlarmStore.setDisabled(this)
         vibrator?.cancel()
-        alarmAudio?.stop()
-        alarmAudio = null
         disarmChargingReceiver()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -305,24 +279,20 @@ class WakeService : Service(), SensorEventListener {
         }
         handler.removeCallbacks(pollCharging)
         handler.removeCallbacks(keepVibrating)
-        handler.removeCallbacks(maintainAudio)
         disarmChargingReceiver()
         sensors.unregisterListener(this)
         vibrator?.cancel()
-        alarmAudio?.stop()
-        alarmAudio = null
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
     }
 
     companion object {
         private const val TAG = "AlarmWakeService"
-        private const val CHANNEL = "alarm_haptics"
-        private const val CHANNEL_TRACKING = "alarm_tracking"
+        private const val CHANNEL = "alarm_haptics_silent_v1"
+        private const val CHANNEL_TRACKING = "alarm_tracking_silent_v1"
         private const val NOTIFICATION_ID = 41
         private const val CHARGING_POLL_MS = 500L
         private const val VIBRATION_REARM_MS = 4_000L
-        private const val AUDIO_POLL_MS = 4_000L
         const val MONITOR = "com.zennay.alarm.MONITOR"
         const val RING = "com.zennay.alarm.RING"
 
