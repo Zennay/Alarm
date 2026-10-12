@@ -1,85 +1,121 @@
 package com.zennay.alarm
 
-import android.app.*
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.os.*
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
-import java.net.HttpURLConnection
-import java.net.URL
 
-/** A single watch-only foreground service. No REM claims, no NFC-reader assumption. */
+/**
+ * Watch-only wake service.
+ * When ringing, there is exactly one app-level dismissal condition: the
+ * operating system reports that the watch is receiving charge.
+ *
+ * No NFC tag, step count, light webhook, snooze or interactive stop command.
+ * The OS can still force-stop the application; do not claim it is unkillable.
+ */
 class WakeService : Service(), SensorEventListener {
     private lateinit var sensors: SensorManager
     private var gate: MotionGate? = null
     private var ringing = false
     private var vibrator: Vibrator? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var batteryReceiverRegistered = false
+    private val handler = Handler(Looper.getMainLooper())
 
-    override fun onBind(intent: Intent?) = null
+    private val chargeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
+            val charging = when (intent.action) {
+                Intent.ACTION_BATTERY_CHANGED -> ChargingGate.fromIntent(intent)
+                Intent.ACTION_POWER_CONNECTED -> ChargingGate.isChargingNow(this@WakeService)
+                else -> false
+            }
+            if (charging) dismissForCharging()
+        }
+    }
+
+    private val pollCharging = object : Runnable {
+        override fun run() {
+            if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
+            if (ChargingGate.isChargingNow(this@WakeService)) dismissForCharging()
+            else handler.postDelayed(this, CHARGING_POLL_MS)
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         sensors = getSystemService(SensorManager::class.java)
-        vibrator = if (Build.VERSION.SDK_INT >= 31)
+        vibrator = if (Build.VERSION.SDK_INT >= 31) {
             getSystemService(VibratorManager::class.java).defaultVibrator
-        else {
+        } else {
             @Suppress("DEPRECATION")
-            val v = getSystemService(VIBRATOR_SERVICE) as Vibrator
-            v
+            val previous = getSystemService(VIBRATOR_SERVICE) as Vibrator
+            previous
         }
-        val channel = NotificationChannel(CHANNEL, "Stille wekker", NotificationManager.IMPORTANCE_HIGH)
-        channel.setSound(null, null)
-        channel.enableVibration(false)
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
-        val tracking = NotificationChannel(CHANNEL_TRACKING, "Slim wekvenster", NotificationManager.IMPORTANCE_LOW)
-        tracking.setSound(null, null)
-        tracking.enableVibration(false)
-        manager.createNotificationChannel(tracking)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Trilwekker", NotificationManager.IMPORTANCE_HIGH).apply {
+                setSound(null, null)
+                enableVibration(false)
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_TRACKING, "Slim wekvenster", NotificationManager.IMPORTANCE_LOW).apply {
+                setSound(null, null)
+                enableVibration(false)
+            }
+        )
     }
 
     private fun foreground(title: String, description: String) {
         val pending = PendingIntent.getActivity(
-            this, 7, Intent(this, MainActivity::class.java)
+            this, 7,
+            Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val channel = if (ringing) CHANNEL else CHANNEL_TRACKING
-        val builder = Notification.Builder(this, channel)
+        val builder = Notification.Builder(this, if (ringing) CHANNEL else CHANNEL_TRACKING)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(title).setContentText(description)
-            .setCategory(Notification.CATEGORY_ALARM)
+            .setContentTitle(title)
+            .setContentText(description)
             .setContentIntent(pending)
+            .setCategory(Notification.CATEGORY_ALARM)
             .setOngoing(true)
-        // A monitoring window must NOT wake the screen or show a fullscreen alarm.
         if (ringing) builder.setFullScreenIntent(pending, true)
-        startForeground(41, builder.build())
+        startForeground(NOTIFICATION_ID, builder.build())
     }
 
     private fun hold(ms: Long) {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Alarm:awake").apply {
-                acquire(ms.coerceIn(60_000, 95L * 60_000))
-            }
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Alarm:awake")
+            .apply { acquire(ms.coerceIn(60_000L, 95L * 60_000)) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             MONITOR -> monitor()
             RING -> ring()
-            COMPLETE -> if (ringing && AlarmStore.steps(this) >= MISSION_STEPS) finish(false)
-            NFC_COMPLETE -> {
-                val fingerprint = intent.getStringExtra(EXTRA_NFC_HASH)
-                if (fingerprint != null && AlarmStore.isRinging(this) &&
-                    fingerprint == AlarmStore.nfcTagFingerprint(this)) finish(false)
-            }
-            EMERGENCY -> finish(true)
             else -> when {
                 AlarmStore.isRinging(this) -> ring()
                 AlarmStore.isTracking(this) -> monitor()
@@ -90,70 +126,109 @@ class WakeService : Service(), SensorEventListener {
     }
 
     private fun monitor() {
-        // Never demote an already ringing alarm back into silent tracking.
         if (ringing || AlarmStore.isRinging(this)) return
         val config = AlarmStore.read(this)
         if (!config.enabled) { stopSelf(); return }
         if (System.currentTimeMillis() >= config.latestMs) { ring(); return }
-        foreground("Slim wekvenster", "Beweging volgen tot de uiterste wektijd")
+        foreground("Slim wekvenster", "Beweging volgen tot je uiterste wektijd")
         AlarmStore.setTracking(this)
         gate = MotionGate(config.earliestMs)
         hold(config.latestMs - System.currentTimeMillis() + 60_000)
         sensors.unregisterListener(this)
         val sensor = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         if (sensor == null || !sensors.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)) {
-            Log.w("Alarm", "No accelerometer: latest alarm deadline is still scheduled")
+            Log.w(TAG, "No accelerometer: exact latest-time alarm still scheduled")
         }
     }
 
     private fun ring() {
-        if (ringing) return
+        if (ringing || !AlarmStore.read(this).enabled) return
         ringing = true
         sensors.unregisterListener(this)
+        gate = null
         AlarmStore.setRinging(this, true)
-        foreground("Tijd om op te staan", "Geen snooze; loop 20 stappen")
-        hold(45L * 60_000)
-        val waveform = longArrayOf(0, 700, 220, 700, 220, 700, 600)
+        foreground("Tijd om op te staan", "Plaats je horloge op de oplader om te stoppen")
+        hold(90L * 60_000)
+
+        // A watch already charging at the alarm time dismisses immediately.
+        // Registration also handles charge transition with the screen off.
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+        }
+        try {
+            val sticky = if (Build.VERSION.SDK_INT >= 33)
+                registerReceiver(chargeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            else {
+                @Suppress("DEPRECATION")
+                val previous = registerReceiver(chargeReceiver, filter)
+                previous
+            }
+            batteryReceiverRegistered = true
+            if (ChargingGate.fromIntent(sticky)) {
+                dismissForCharging()
+                return
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Charging broadcast registration failed; polling remains", e)
+        }
+        if (ChargingGate.isChargingNow(this)) {
+            dismissForCharging()
+            return
+        }
+        handler.removeCallbacks(pollCharging)
+        handler.postDelayed(pollCharging, CHARGING_POLL_MS)
+
+        // Maximum *requested* strength (wearable firmware decides actual haptics).
+        val pattern = longArrayOf(0, 700, 220, 700, 220, 700, 600)
         val effect = if (vibrator?.hasAmplitudeControl() == true)
-            VibrationEffect.createWaveform(waveform, intArrayOf(0, 255, 0, 255, 0, 255, 0), 1)
-        else VibrationEffect.createWaveform(waveform, 1)
+            VibrationEffect.createWaveform(pattern, intArrayOf(0, 255, 0, 255, 0, 255, 0), 1)
+        else VibrationEffect.createWaveform(pattern, 1)
         vibrator?.vibrate(effect)
         try {
-            sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
-                sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
-            }
-        } catch (denied: SecurityException) {
-            Log.w("Alarm", "Activity recognition permission denied; use emergency stop", denied)
-        }
-        try {
-            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
         } catch (e: Exception) {
-            Log.w("Alarm", "Fullscreen launch restricted; foreground notification still exists", e)
+            Log.w(TAG, "Fullscreen activity launch restricted; notification remains", e)
         }
     }
 
-    override fun onSensorChanged(event: SensorEvent) {
-        when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> {
-                val now = System.currentTimeMillis()
-                if (now >= AlarmStore.read(this).latestMs ||
-                    gate?.record(now, event.values[0], event.values[1], event.values[2]) == true) ring()
-            }
-            Sensor.TYPE_STEP_DETECTOR -> if (ringing) AlarmStore.incrementSteps(this)
-        }
-    }
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-
-    private fun finish(emergency: Boolean) {
+    private fun dismissForCharging() {
+        if (!ringing || !AlarmStore.isRinging(this)) return
+        Log.i(TAG, "CHARGING_DETECTED: dismiss active ringing alarm")
+        ringing = false
+        handler.removeCallbacks(pollCharging)
         AlarmScheduler.cancel(this)
         AlarmStore.setDisabled(this)
         vibrator?.cancel()
-        if (!emergency) LightWebhook.trigger(AlarmStore.webhook(this))
+        disarmChargingReceiver()
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
+    private fun disarmChargingReceiver() {
+        if (!batteryReceiverRegistered) return
+        batteryReceiverRegistered = false
+        try { unregisterReceiver(chargeReceiver) }
+        catch (e: IllegalArgumentException) { Log.w(TAG, "Battery receiver already released", e) }
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type != Sensor.TYPE_ACCELEROMETER || ringing) return
+        val now = System.currentTimeMillis()
+        if (now >= AlarmStore.read(this).latestMs ||
+            gate?.record(now, event.values[0], event.values[1], event.values[2]) == true
+        ) ring()
+    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
     override fun onDestroy() {
+        handler.removeCallbacks(pollCharging)
+        disarmChargingReceiver()
         sensors.unregisterListener(this)
         vibrator?.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
@@ -161,48 +236,18 @@ class WakeService : Service(), SensorEventListener {
     }
 
     companion object {
+        private const val TAG = "AlarmWakeService"
         private const val CHANNEL = "alarm_haptics"
         private const val CHANNEL_TRACKING = "alarm_tracking"
-        const val MISSION_STEPS = 20
+        private const val NOTIFICATION_ID = 41
+        private const val CHARGING_POLL_MS = 2_000L
         const val MONITOR = "com.zennay.alarm.MONITOR"
         const val RING = "com.zennay.alarm.RING"
-        const val COMPLETE = "com.zennay.alarm.COMPLETE"
-        const val NFC_COMPLETE = "com.zennay.alarm.NFC_COMPLETE"
-        private const val EXTRA_NFC_HASH = "nfcHash"
-        fun sendNfcCompleted(context: Context, fingerprint: String) {
-            context.startService(Intent(context, WakeService::class.java)
-                .setAction(NFC_COMPLETE).putExtra(EXTRA_NFC_HASH, fingerprint))
-        }
-        const val EMERGENCY = "com.zennay.alarm.EMERGENCY"
 
         fun send(context: Context, action: String) {
-            val intent = Intent(context, WakeService::class.java).setAction(action)
-            if (action == COMPLETE || action == EMERGENCY) context.startService(intent)
-            else context.startForegroundService(intent)
+            context.startForegroundService(
+                Intent(context, WakeService::class.java).setAction(action)
+            )
         }
-    }
-}
-
-/** Optional bridge. Google Home has no automatic NFC-to-webhook integration. */
-object LightWebhook {
-    fun trigger(endpoint: String) {
-        if (!endpoint.startsWith("https://", ignoreCase = true)) return
-        Thread {
-            try {
-                val conn = URL(endpoint).openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.connectTimeout = 4_000
-                conn.readTimeout = 4_000
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use {
-                    it.write("""{"event":"alarm_dismissed","light":{"on":true,"brightness":100,"color":"white"}}""".toByteArray())
-                }
-                conn.responseCode
-                conn.disconnect()
-            } catch (e: Exception) {
-                Log.w("AlarmLights", "Webhook failed", e)
-            }
-        }.start()
     }
 }
