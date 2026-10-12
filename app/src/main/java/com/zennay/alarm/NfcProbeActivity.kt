@@ -203,7 +203,7 @@ class NfcProbeActivity : Activity(), NfcAdapter.ReaderCallback {
             return
         }
         val fingerprint = fingerprint(bytes)
-        if (fingerprint == lastSeen) return
+        if (fingerprint == lastSeen && !enrollNext) return
         lastSeen = fingerprint
         val type = tag.techList.joinToString(",") { it.substringAfterLast(".") }
         Log.i(TAG, "TAG_DETECTED UID SHA256=${fingerprint.take(12)} technologies=$type")
