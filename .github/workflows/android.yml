@@ -34,6 +34,14 @@ jobs:
           yes | "$SDK_MANAGER" --licenses >/dev/null || true
           "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0"
           "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0'
+      - name: Verify vibration-only source policy
+        run: |
+          if grep -R -n -E 'android\\.media\\.|AlarmAudioPlayer|SoundSettings|MediaPlayer|AudioTrack|RingtoneManager|SoundPool|ToneGenerator' app/src/main; then
+            echo 'ERROR: Audible alarm code is forbidden in the vibration-only application.' >&2
+            exit 1
+          fi
+          grep -q 'setSilent(true)' app/src/main/java/com/zennay/alarm/WakeService.kt
+          grep -q 'setSound(null, null)' app/src/main/java/com/zennay/alarm/WakeService.kt
       - name: Build & test
         run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
       - name: Rename installable APK
