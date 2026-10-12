@@ -40,7 +40,7 @@ jobs:
             echo 'ERROR: Audible alarm code is forbidden in the vibration-only application.' >&2
             exit 1
           fi
-          grep -q 'setSilent(true)' app/src/main/java/com/zennay/alarm/WakeService.kt
+          grep -q 'setDefaults(0)' app/src/main/java/com/zennay/alarm/WakeService.kt
           grep -q 'setSound(null, null)' app/src/main/java/com/zennay/alarm/WakeService.kt
       - name: Build & test
         run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
