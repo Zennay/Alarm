@@ -9,6 +9,17 @@ class AlarmLogicTest {
     private val zone = ZoneId.of("Europe/Amsterdam")
     private fun instant(iso: String) = LocalDateTime.parse(iso).atZone(zone).toInstant().toEpochMilli()
 
+    @Test fun activeAlarmSurvivesNextMinuteAndLaterClockUpdates() {
+        val latest = instant("2026-10-12T07:00:00")
+        assertFalse(AlarmContinuationPolicy.shouldExpire(latest + 1_000, latest, true))
+        assertFalse(AlarmContinuationPolicy.shouldExpire(latest + 60_000, latest, true))
+        assertFalse(AlarmContinuationPolicy.shouldExpire(latest + 3_600_000, latest, true))
+    }
+    @Test fun onlyExpiredAndNotRingingAlarmsAreCleared() {
+        val latest = instant("2026-10-12T07:00:00")
+        assertFalse(AlarmContinuationPolicy.shouldExpire(latest - 1, latest, false))
+        assertTrue(AlarmContinuationPolicy.shouldExpire(latest, latest, false))
+    }
     @Test fun fixedNextDayWhenTimePassed() {
         val times = TimePlanner.next(AlarmMode.FIXED, 7*60, 0, instant("2026-10-12T08:00:00"), zone)
         assertEquals(instant("2026-10-13T07:00:00"), times.earliestMs)
