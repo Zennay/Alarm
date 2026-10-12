@@ -28,9 +28,12 @@ jobs:
           gradle-version: '8.9'
       - name: Install Android SDK 35
         run: |
-          echo "y" | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-          sdkmanager --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0'
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDK_MANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -x "$SDK_MANAGER"
+          yes | "$SDK_MANAGER" --licenses >/dev/null || true
+          "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0"
+          "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0'
       - name: Build & test
         run: gradle --no-daemon :app:assembleDebug :app:testDebugUnitTest
       - name: Rename installable APK
