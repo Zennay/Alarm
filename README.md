@@ -1,6 +1,6 @@
 # Alarm · Galaxy Watch 7
 
-**Wear OS 0.3.0 preview** — hoorbare en trillende wekker voor Galaxy Watch 7 (SM-L315F).
+**Wear OS 0.3.1 preview** — hoorbare en trillende wekker voor Galaxy Watch 7 (SM-L315F).
 
 **[APK downloaden](https://github.com/Zennay/Alarm/releases/download/alarm-preview/Alarm-WearOS.apk)** · [Release](https://github.com/Zennay/Alarm/releases/tag/alarm-preview)
 
@@ -13,6 +13,8 @@
 - Opladen zonder een actief alarm doet **niets**. Er gaan geen lampen aan en er is geen netwerkverzoek.
 - Als het horloge bij aanvang van de wekker al op de lader ligt, wordt het alarm meteen als voltooid beschouwd.
 - Geen NFC-scanner, stappenopdracht, Google Home-koppeling of telefoon vereist voor de werking.
+
+**Continuïteitsfix (0.3.1):** minuutwisselingen of een tijdsynchronisatie mogen een lopend alarm niet verwijderen; de alarmservice kan opnieuw gestart worden na een onderbreking en de trilreeks wordt periodiek vernieuwd. Een Watch 7-hardwaretest blijft nodig.
 
 ## Testen
 
