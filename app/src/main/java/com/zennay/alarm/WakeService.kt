@@ -35,7 +35,12 @@ class WakeService : Service(), SensorEventListener {
         val channel = NotificationChannel(CHANNEL, "Stille wekker", NotificationManager.IMPORTANCE_HIGH)
         channel.setSound(null, null)
         channel.enableVibration(false)
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+        val tracking = NotificationChannel(CHANNEL_TRACKING, "Slim wekvenster", NotificationManager.IMPORTANCE_LOW)
+        tracking.setSound(null, null)
+        tracking.enableVibration(false)
+        manager.createNotificationChannel(tracking)
     }
 
     private fun foreground(title: String, description: String) {
@@ -44,15 +49,16 @@ class WakeService : Service(), SensorEventListener {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = Notification.Builder(this, CHANNEL)
+        val channel = if (ringing) CHANNEL else CHANNEL_TRACKING
+        val builder = Notification.Builder(this, channel)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(title).setContentText(description)
             .setCategory(Notification.CATEGORY_ALARM)
             .setContentIntent(pending)
-            .setFullScreenIntent(pending, true)
             .setOngoing(true)
-            .build()
-        startForeground(41, notification)
+        // A monitoring window must NOT wake the screen or show a fullscreen alarm.
+        if (ringing) builder.setFullScreenIntent(pending, true)
+        startForeground(41, builder.build())
     }
 
     private fun hold(ms: Long) {
@@ -151,6 +157,7 @@ class WakeService : Service(), SensorEventListener {
 
     companion object {
         private const val CHANNEL = "alarm_haptics"
+        private const val CHANNEL_TRACKING = "alarm_tracking"
         const val MISSION_STEPS = 20
         const val MONITOR = "com.zennay.alarm.MONITOR"
         const val RING = "com.zennay.alarm.RING"
