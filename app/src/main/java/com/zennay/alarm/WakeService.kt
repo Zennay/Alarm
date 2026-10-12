@@ -264,7 +264,7 @@ class WakeService : Service(), SensorEventListener {
     override fun onDestroy() {
         // An Android lifecycle teardown is NOT user dismissal. Keep a recovery
         // wakeup pending so the charge-only alarm can resume after service loss.
-        if (AlarmStore.isRinging(this) && !ChargingGate.isChargingNow(this)) {
+        if (AlarmStore.isRinging(this)) {
             try { AlarmScheduler.scheduleRecovery(this, 10_000L) }
             catch (e: Exception) { Log.e(TAG, "Alarm recovery scheduling failed", e) }
         }
