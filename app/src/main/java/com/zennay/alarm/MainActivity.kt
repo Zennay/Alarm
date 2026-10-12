@@ -114,7 +114,7 @@ class MainActivity : Activity() {
     private fun drawLayout() {
         window.decorView.setBackgroundColor(ink)
         val scroll = ScrollView(this).apply {
-            fillViewport = true
+            isFillViewport = true
             isVerticalScrollBarEnabled = false
             clipToPadding = false
         }
