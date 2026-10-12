@@ -36,6 +36,7 @@ class WakeService : Service(), SensorEventListener {
     private var gate: MotionGate? = null
     private var ringing = false
     private var vibrator: Vibrator? = null
+    private var alarmAudio: AlarmAudioPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var batteryReceiverRegistered = false
     private val handler = Handler(Looper.getMainLooper())
@@ -186,6 +187,12 @@ class WakeService : Service(), SensorEventListener {
         else VibrationEffect.createWaveform(pattern, 1)
         vibrator?.vibrate(effect)
         try {
+            alarmAudio?.stop()
+            alarmAudio = AlarmAudioPlayer(this).also { it.start() }
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to start audio; vibration still active", error)
+        }
+        try {
             startActivity(
                 Intent(this, MainActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -203,6 +210,8 @@ class WakeService : Service(), SensorEventListener {
         AlarmScheduler.cancel(this)
         AlarmStore.setDisabled(this)
         vibrator?.cancel()
+        alarmAudio?.stop()
+        alarmAudio = null
         disarmChargingReceiver()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -231,6 +240,8 @@ class WakeService : Service(), SensorEventListener {
         disarmChargingReceiver()
         sensors.unregisterListener(this)
         vibrator?.cancel()
+        alarmAudio?.stop()
+        alarmAudio = null
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
     }
