@@ -4,12 +4,6 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.TimePickerDialog
-import android.media.RingtoneManager
-import android.net.Uri
-import android.widget.SeekBar
-import android.provider.DocumentsContract
-import java.io.File
-import java.io.FileOutputStream
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
@@ -54,18 +48,10 @@ class MainActivity : Activity() {
     private lateinit var ringingPane: View
     private lateinit var chargingStatus: TextView
     private lateinit var cancel: TextView
-    private lateinit var soundSelection: TextView
-    private lateinit var soundVolumeLabel: TextView
-    private var preview: AlarmAudioPlayer? = null
-    private val stopPreview = Runnable { stopSoundPreview() }
     private var from = 7 * 60
     private var until = 7 * 60 + 30
     private var selectedMode = AlarmMode.FIXED
     private val handler = Handler(Looper.getMainLooper())
-    private companion object {
-        const val RINGTONE_PICKER_REQUEST = 501
-        const val CUSTOM_FILE_REQUEST = 502
-    }
     private val refresher = object : Runnable {
         override fun run() {
             if (!isFinishing) {
@@ -198,42 +184,11 @@ class MainActivity : Activity() {
         gap(settingsColumn, 16)
 
         gap(settingsColumn, 13)
-        add(settingsColumn, title("WEKKERGELUID"))
-        gap(settingsColumn, 7)
-        soundSelection = pill("Kies geluid", card, mint, muted)
-        add(settingsColumn, soundSelection)
-        soundSelection.setOnClickListener { chooseSound() }
-        gap(settingsColumn, 8)
-        soundVolumeLabel = text("", 12f, muted)
-        add(settingsColumn, soundVolumeLabel)
-        val volume = SeekBar(this).apply {
-            max = 100
-            progress = SoundSettings.volumePercent(this@MainActivity)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) {
-                        SoundSettings.setVolumePercent(this@MainActivity, progress)
-                        soundVolumeLabel.text = "Geluidsterkte app: $progress% (van systeemwekvolume)"
-                    }
-                }
-                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(bar: SeekBar?) = Unit
-            })
-        }
-        add(settingsColumn, volume)
-        val hear = pill("▶ Geluid beluisteren (4 sec)", card, mint)
-        add(settingsColumn, hear)
-        hear.setOnClickListener {
-            stopSoundPreview()
-            preview = AlarmAudioPlayer(this)
-            preview?.start()
-            handler.postDelayed(stopPreview, 4000L)
-        }
-        gap(settingsColumn, 8)
         add(settingsColumn, text(
-            "Controleer ook Instellingen → Geluiden en trillen → Wekkervolume op je Watch.",
-            11f, muted
+            "STILLE WEKKER: alleen trillingen, nooit geluid.",
+            12f, mint, true
         ))
+        gap(settingsColumn, 14)
 
         val save = pill("Wekker instellen", mint, ink)
         add(settingsColumn, save)
@@ -349,19 +304,11 @@ class MainActivity : Activity() {
         windowGroup.visibility = if (smart) View.VISIBLE else View.GONE
         heroTime.text = if (ringing) "OPSTAAN" else formatMinute(from)
         heroTime.textSize = if (ringing) 32f else 49f
-        soundSelection.text = when (SoundSettings.choice(this)) {
-            AlarmSound.DOUBLE_BEEP -> "♪ Dubbele piep   ›"
-            AlarmSound.SIREN -> "♪ Sirene   ›"
-            AlarmSound.URGENT -> "♪ Urgent   ›"
-            AlarmSound.SYSTEM_RINGTONE -> "♪ Systeemalarm   ›"
-            AlarmSound.CUSTOM_FILE -> "♪ Eigen audiobestand   ›"
-        }
-        soundVolumeLabel.text = "Geluidsterkte app: ${SoundSettings.volumePercent(this)}% (van systeemwekvolume)"
         heroCaption.text = when {
             ringing -> "Stoppen kan alleen op de oplader"
             tracking -> "Zoeken naar het juiste wekmoment"
             smart -> "Wakker worden binnen je tijdvak"
-            else -> "Geluid + trillen, geen snooze"
+            else -> "Alleen trillen, geen snooze"
         }
         status.text = when {
             ringing -> "●  WEKKER ACTIEF"
@@ -382,116 +329,12 @@ class MainActivity : Activity() {
     }
 
 
-    private fun chooseSound() {
-        val names = arrayOf(
-            "Dubbele piep",
-            "Sirene",
-            "Urgent",
-            "Systeemwekker kiezen…",
-            "Eigen audiobestand kiezen…"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("Kies je wekkergeluid")
-            .setItems(names) { _, index ->
-                when (index) {
-                    0 -> SoundSettings.setChoice(this, AlarmSound.DOUBLE_BEEP)
-                    1 -> SoundSettings.setChoice(this, AlarmSound.SIREN)
-                    2 -> SoundSettings.setChoice(this, AlarmSound.URGENT)
-                    3 -> openRingtonePicker()
-                    4 -> openCustomAudioPicker()
-                }
-                refresh()
-            }.show()
-    }
-
-    private fun openRingtonePicker() {
-        val current = SoundSettings.selectedUri(this, AlarmSound.SYSTEM_RINGTONE)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
-            .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-            .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Wekkergeluid")
-            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-            .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-            .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, current)
-        try {
-            startActivityForResult(intent, RINGTONE_PICKER_REQUEST)
-        } catch (e: android.content.ActivityNotFoundException) {
-            Toast.makeText(this, "Geen systeemgeluidkiezer op dit horloge. Kies een ingebouwd geluid.", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun openCustomAudioPicker() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "audio/*"
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        try {
-            startActivityForResult(intent, CUSTOM_FILE_REQUEST)
-        } catch (e: android.content.ActivityNotFoundException) {
-            Toast.makeText(this, "Geen bestandskiezer op dit horloge. Gebruik een ingebouwd geluid of de systeemwekker.", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    @Deprecated("Android activity result callback, used for API 30 watch compatibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != Activity.RESULT_OK) return
-        when (requestCode) {
-            RINGTONE_PICKER_REQUEST -> {
-                @Suppress("DEPRECATION")
-                val selected = data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-                if (selected != null) {
-                    SoundSettings.setSelectedUri(this, AlarmSound.SYSTEM_RINGTONE, selected)
-                    Toast.makeText(this, "Systeemalarm ingesteld", Toast.LENGTH_SHORT).show()
-                }
-            }
-            CUSTOM_FILE_REQUEST -> {
-                val uri = data?.data ?: return
-                try {
-                    // Copy media into app-private storage so the chosen sound keeps
-                    // working even when the original document provider vanishes.
-                    val target = File(filesDir, "selected_alarm_audio")
-                    val temp = File(filesDir, "selected_alarm_audio.tmp")
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(temp).use { output ->
-                            val buf = ByteArray(8192)
-                            var length = 0L
-                            while (true) {
-                                val count = input.read(buf)
-                                if (count < 0) break
-                                length += count
-                                if (length > 20L * 1024 * 1024)
-                                    throw java.io.IOException("Bestand te groot (max. 20 MB)")
-                                output.write(buf, 0, count)
-                            }
-                            if (length == 0L) throw java.io.IOException("Bestand is leeg")
-                        }
-                    } ?: throw java.io.IOException("Kon audio niet openen")
-                    if (!temp.renameTo(target)) throw java.io.IOException("Kon geluid niet opslaan")
-                    SoundSettings.setSelectedUri(this, AlarmSound.CUSTOM_FILE, Uri.fromFile(target))
-                    Toast.makeText(this, "Eigen geluid opgeslagen", Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Geluid kiezen mislukt: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-        refresh()
-    }
-
-    private fun stopSoundPreview() {
-        handler.removeCallbacks(stopPreview)
-        preview?.stop()
-        preview = null
-    }
-
     override fun onResume() {
         super.onResume()
         handler.removeCallbacks(refresher)
         handler.post(refresher)
     }
     override fun onPause() {
-        stopSoundPreview()
         handler.removeCallbacks(refresher)
         super.onPause()
     }
