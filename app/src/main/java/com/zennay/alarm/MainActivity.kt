@@ -2,26 +2,32 @@ package com.zennay.alarm
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.TimePickerDialog
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.*
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
+import android.content.Intent
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
-import android.widget.*
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/**
- * Dark, watch-first screen. Native views avoid extra Compose dependencies and
- * fit the round Galaxy Watch screen; all core features work offline.
- */
+/** Watch-first AMOLED UI. No dismissal button: only charging stops a ringing alarm. */
 class MainActivity : Activity() {
     private val ink = Color.rgb(7, 12, 19)
     private val card = Color.rgb(20, 31, 44)
@@ -38,17 +44,14 @@ class MainActivity : Activity() {
     private lateinit var timePrimary: TextView
     private lateinit var timeSecondary: TextView
     private lateinit var windowGroup: View
-    private lateinit var settingGroup: View
-    private lateinit var ringingGroup: View
-    private lateinit var action: TextView
+    private lateinit var settings: View
+    private lateinit var ringingPane: View
+    private lateinit var chargingStatus: TextView
     private lateinit var cancel: TextView
-    private lateinit var emergency: TextView
-    private lateinit var mission: TextView
     private var from = 7 * 60
     private var until = 7 * 60 + 30
     private var selectedMode = AlarmMode.FIXED
     private val handler = Handler(Looper.getMainLooper())
-    private var emergencyTimer: Runnable? = null
     private val refresher = object : Runnable {
         override fun run() {
             if (!isFinishing) {
@@ -64,7 +67,10 @@ class MainActivity : Activity() {
         from = saved.firstMinute
         until = saved.lastMinute
         selectedMode = saved.mode
-        requestNeededPermissions()
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 12)
+        }
         drawLayout()
         refresh()
     }
@@ -77,126 +83,112 @@ class MainActivity : Activity() {
             if (stroke != null) setStroke(dp(1), stroke)
         }
 
-    private fun text(
-        label: String,
-        size: Float = 14f,
-        color: Int = white,
-        bold: Boolean = false
-    ): TextView = TextView(this).apply {
-        this.text = label
-        textSize = size
-        setTextColor(color)
-        gravity = Gravity.CENTER
-        typeface = Typeface.create(if (bold) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
-        includeFontPadding = true
-    }
+    private fun text(label: String, size: Float = 14f, color: Int = white, bold: Boolean = false) =
+        TextView(this).apply {
+            this.text = label
+            textSize = size
+            setTextColor(color)
+            gravity = Gravity.CENTER
+            typeface = Typeface.create(
+                if (bold) "sans-serif-medium" else "sans-serif", Typeface.NORMAL
+            )
+        }
 
-    private fun column(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    private fun add(parent: LinearLayout, child: View) {
+        parent.addView(child, LinearLayout.LayoutParams(-1, -2))
+    }
     private fun gap(parent: LinearLayout, height: Int) {
         parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
     }
-    private fun add(parent: LinearLayout, child: View, minHeight: Int = 0) {
-        if (minHeight > 0) child.minimumHeight = dp(minHeight)
-        parent.addView(child, LinearLayout.LayoutParams(-1, -2))
-    }
-    private fun pill(label: String, fill: Int, color: Int = white, outline: Int? = null): TextView =
+    private fun pill(label: String, fill: Int, color: Int, border: Int? = null) =
         text(label, 15f, color, true).apply {
-            background = shape(fill, 26, outline)
+            background = shape(fill, 25, border)
             minHeight = dp(48)
-            setPadding(dp(10), dp(12), dp(10), dp(12))
+            setPadding(dp(10), dp(13), dp(10), dp(13))
         }
-    private fun smallTitle(label: String): TextView =
-        text(label, 11f, muted, true).apply {
-            letterSpacing = 0.13f
-            gravity = Gravity.CENTER
-        }
+    private fun title(label: String) =
+        text(label, 11f, muted, true).apply { letterSpacing = .13f }
 
     private fun drawLayout() {
         window.decorView.setBackgroundColor(ink)
-        val scroll = ScrollView(this).apply {
+        val root = column().apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(26), dp(18), dp(26), dp(35))
+        }
+        setContentView(ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
-            clipToPadding = false
-        }
-        val page = column().apply {
-            setPadding(dp(26), dp(18), dp(26), dp(32))
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        scroll.addView(page)
-        setContentView(scroll)
+            addView(root)
+        })
 
-        add(page, smallTitle("ALARM  /  WATCH 7"))
-        gap(page, 9)
-        heroTime = text("07:00", 50f, white, true).apply {
-            letterSpacing = -0.05f
-        }
-        add(page, heroTime)
+        add(root, title("ALARM  /  WATCH 7"))
+        gap(root, 8)
+        heroTime = text("07:00", 49f, white, true).apply { letterSpacing = -0.05f }
+        add(root, heroTime)
         heroCaption = text("Jouw rustige start", 13f, muted)
-        add(page, heroCaption)
-        gap(page, 10)
+        add(root, heroCaption)
+        gap(root, 14)
         status = text("", 12f, mint, true).apply {
-            background = shape(card, 20)
-            setPadding(dp(12), dp(9), dp(12), dp(9))
+            background = shape(card, 24)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        add(page, status, 38)
-        gap(page, 22)
+        add(root, status)
+        gap(root, 23)
 
-        settingGroup = column()
-        add(page, settingGroup)
-
-        add(settingGroup as LinearLayout, smallTitle("KIES JE WEKKER"))
-        gap(settingGroup as LinearLayout, 10)
+        settings = column().also { add(root, it) }
+        val settingsColumn = settings as LinearLayout
+        add(settingsColumn, title("KIES JE WEKKER"))
+        gap(settingsColumn, 9)
         val tabs = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = shape(card, 28)
+            background = shape(card)
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         fixedTab = pill("Vaste tijd", card, white)
         smartTab = pill("Slim venster", card, white)
         tabs.addView(fixedTab, LinearLayout.LayoutParams(0, -2, 1f))
         tabs.addView(smartTab, LinearLayout.LayoutParams(0, -2, 1f))
-        add(settingGroup as LinearLayout, tabs)
+        add(settingsColumn, tabs)
         fixedTab.setOnClickListener { selectedMode = AlarmMode.FIXED; refresh() }
         smartTab.setOnClickListener { selectedMode = AlarmMode.SMART; refresh() }
-        gap(settingGroup as LinearLayout, 19)
+        gap(settingsColumn, 18)
 
-        add(settingGroup as LinearLayout, smallTitle("BEGIN"))
-        gap(settingGroup as LinearLayout, 7)
-        timePrimary = pill("07:00", card, mint, muted)
-        timePrimary.textSize = 25f
-        add(settingGroup as LinearLayout, timePrimary, 56)
+        add(settingsColumn, title("WEKTIJD"))
+        gap(settingsColumn, 7)
+        timePrimary = pill("07:00", card, mint, muted).apply { textSize = 26f }
+        add(settingsColumn, timePrimary)
         timePrimary.setOnClickListener {
             TimePickerDialog(this, { _, hour, minute ->
                 from = hour * 60 + minute
                 refresh()
             }, from / 60, from % 60, true).show()
         }
-        gap(settingGroup as LinearLayout, 13)
+        gap(settingsColumn, 12)
 
-        val windowContainer = column()
-        windowGroup = windowContainer
-        add(settingGroup as LinearLayout, windowContainer)
-        add(windowContainer, smallTitle("UITERLIJK"))
-        gap(windowContainer, 7)
-        timeSecondary = pill("07:30", card, mint, muted)
-        timeSecondary.textSize = 25f
-        add(windowContainer, timeSecondary, 56)
+        val window = column()
+        windowGroup = window
+        add(settingsColumn, window)
+        add(window, title("UITERLIJK"))
+        gap(window, 7)
+        timeSecondary = pill("07:30", card, mint, muted).apply { textSize = 26f }
+        add(window, timeSecondary)
         timeSecondary.setOnClickListener {
             TimePickerDialog(this, { _, hour, minute ->
                 until = hour * 60 + minute
                 refresh()
             }, until / 60, until % 60, true).show()
         }
-        gap(windowContainer, 10)
-        add(windowContainer, text("Beweging kan je eerder wekken. De eindtijd blijft vast.", 12f, muted))
-        gap(settingGroup as LinearLayout, 16)
+        gap(window, 8)
+        add(window, text("Beweging kan eerder wekken; de eindtijd staat vast.", 12f, muted))
+        gap(settingsColumn, 16)
 
-        action = pill("Wekker instellen", mint, ink)
-        add(settingGroup as LinearLayout, action, 53)
-        action.setOnClickListener { saveAlarm() }
-        gap(settingGroup as LinearLayout, 10)
-        cancel = pill("Annuleer geplande wekker", card, warn)
-        add(settingGroup as LinearLayout, cancel)
+        val save = pill("Wekker instellen", mint, ink)
+        add(settingsColumn, save)
+        save.setOnClickListener { saveAlarm() }
+        gap(settingsColumn, 9)
+        cancel = pill("Geplande wekker annuleren", card, warn)
+        add(settingsColumn, cancel)
         cancel.setOnClickListener {
             if (!AlarmStore.isRinging(this) && !AlarmStore.isTracking(this)) {
                 AlarmScheduler.cancel(this)
@@ -204,111 +196,69 @@ class MainActivity : Activity() {
                 refresh()
             }
         }
-        gap(settingGroup as LinearLayout, 18)
+        gap(settingsColumn, 18)
 
-        ringingGroup = column()
-        add(page, ringingGroup)
-        mission = text("", 20f, mint, true)
-        add(ringingGroup as LinearLayout, mission)
-        gap(ringingGroup as LinearLayout, 12)
-        val finish = pill("Ik ben opgestaan", mint, ink)
-        add(ringingGroup as LinearLayout, finish)
-        finish.setOnClickListener {
-            if (AlarmStore.isRinging(this) && AlarmStore.steps(this) >= WakeService.MISSION_STEPS) {
-                WakeService.send(this, WakeService.COMPLETE)
-                handler.postDelayed({ refresh() }, 450)
-            }
+        ringingPane = column().also { add(root, it) }
+        val active = ringingPane as LinearLayout
+        val icon = text("⌁", 45f, mint, true)
+        add(active, icon)
+        add(active, text("LEG JE WATCH\nOP DE OPLADER", 19f, white, true))
+        gap(active, 13)
+        chargingStatus = text("Wachten op oplader…", 13f, mint, true).apply {
+            background = shape(card, 24)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        // One long-press override is essential if Android denies step detection.
-        emergency = pill("Noodstop · 5 sec vasthouden", card, warn)
-        add(page, emergency)
-        emergency.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    emergencyTimer = Runnable {
-                        WakeService.send(this, WakeService.EMERGENCY)
-                        Toast.makeText(this, "Noodstop", Toast.LENGTH_SHORT).show()
-                        refresh()
-                    }.also { handler.postDelayed(it, 5000L) }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    emergencyTimer?.let { handler.removeCallbacks(it) }
-                    emergencyTimer = null
-                    true
-                }
-                else -> true
-            }
+        add(active, chargingStatus)
+        gap(active, 10)
+        add(active, text("Geen snooze. Trillingen stoppen vanzelf zodra opladen begint.", 12f, muted))
+        gap(root, 15)
+
+        val check = pill("Controleer oplader", card, mint)
+        add(root, check)
+        check.setOnClickListener {
+            val connected = ChargingGate.isChargingNow(this)
+            Toast.makeText(
+                this,
+                if (connected) "Opladen gedetecteerd ✓" else "Nog geen opladen gedetecteerd",
+                Toast.LENGTH_LONG
+            ).show()
         }
-        gap(page, 14)
-        val testVibration = pill("Test trillingen", card, muted)
-        add(page, testVibration)
-        testVibration.setOnClickListener {
-            val motor = if (Build.VERSION.SDK_INT >= 31) {
+        gap(root, 8)
+        val test = pill("Test trilalarm", card, muted)
+        add(root, test)
+        test.setOnClickListener {
+            val motor = if (Build.VERSION.SDK_INT >= 31)
                 getSystemService(VibratorManager::class.java).defaultVibrator
-            } else {
+            else {
                 @Suppress("DEPRECATION")
-                val old = getSystemService(VIBRATOR_SERVICE) as Vibrator
-                old
+                val older = getSystemService(VIBRATOR_SERVICE) as Vibrator
+                older
             }
             motor.vibrate(VibrationEffect.createOneShot(1000L, VibrationEffect.DEFAULT_AMPLITUDE))
         }
-        gap(page, 10)
-        val nfc = pill("NFC-sticker testen  →", card, mint)
-        add(page, nfc)
-        nfc.setOnClickListener {
-            startActivity(Intent(this, NfcProbeActivity::class.java))
+        gap(root, 8)
+        val trial = pill("Test: wekker nu starten", card, muted)
+        add(root, trial)
+        trial.setOnClickListener {
+            if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            AlertDialog.Builder(this)
+                .setTitle("Trilwekker testen?")
+                .setMessage("De wekker blijft trillen totdat je horloge oplaadt. Houd de oplader bij de hand.")
+                .setNegativeButton("Terug", null)
+                .setPositiveButton("Start test") { _, _ ->
+                    val now = System.currentTimeMillis()
+                    AlarmScheduler.cancel(this)
+                    AlarmStore.save(this, AlarmConfig(AlarmMode.FIXED, from, until,
+                        now, now, true))
+                    WakeService.send(this, WakeService.RING)
+                    handler.postDelayed({ refresh() }, 500)
+                }.show()
         }
-        gap(page, 20)
-
-        val advanced = column()
-        add(page, advanced)
-        val advancedToggle = pill("Lampen & instellingen  ▾", card, muted)
-        add(advanced, advancedToggle)
-        val advancedBody = column()
-        add(advanced, advancedBody)
-        advancedBody.visibility = View.GONE
-        advancedToggle.setOnClickListener {
-            advancedBody.visibility = if (advancedBody.visibility == View.GONE) View.VISIBLE else View.GONE
-            advancedToggle.text = if (advancedBody.visibility == View.VISIBLE)
-                "Lampen & instellingen  ▴" else "Lampen & instellingen  ▾"
-        }
-        gap(advancedBody, 10)
-        add(advancedBody, text("Licht aan na opstaan: optionele HTTPS-automatisering", 12f, muted))
-        val urlInput = EditText(this).apply {
-            hint = "https://..."
-            textSize = 13f
-            setTextColor(white)
-            setHintTextColor(muted)
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
-            setSingleLine(true)
-            setText(AlarmStore.webhook(this@MainActivity))
-            background = shape(card, 17, muted)
-            setPadding(dp(12), dp(11), dp(12), dp(11))
-        }
-        add(advancedBody, urlInput, 48)
-        gap(advancedBody, 8)
-        val saveLights = pill("Bewaar koppeling", card, mint)
-        add(advancedBody, saveLights)
-        saveLights.setOnClickListener {
-            val url = urlInput.text.toString().trim()
-            if (url.isNotEmpty() && !url.startsWith("https://")) {
-                Toast.makeText(this, "Gebruik HTTPS", Toast.LENGTH_SHORT).show()
-            } else {
-                AlarmStore.setWebhook(this, url)
-                Toast.makeText(this, "Opgeslagen", Toast.LENGTH_SHORT).show()
-            }
-        }
-        gap(advancedBody, 11)
-        add(advancedBody, text("NFC-readerfunctie ontbreekt in de Watch 7 featurelijst. Test 3 Android-methoden; alleen een echte tagmelding bevestigt werking.", 11f, muted))
-        finish.isEnabled = false
-        // Enable via live refresh without adding sensors to this Activity.
-        finish.tag = "mission_complete"
     }
 
     private fun saveAlarm() {
         if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) {
-            Toast.makeText(this, "Rond eerst het actieve alarm af", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Wacht tot je horloge oplaadt.", Toast.LENGTH_SHORT).show()
             return
         }
         if (!AlarmScheduler.canSchedule(this)) {
@@ -319,10 +269,10 @@ class MainActivity : Activity() {
         try {
             val times = TimePlanner.next(selectedMode, from, until,
                 System.currentTimeMillis(), ZoneId.systemDefault())
-            val config = AlarmConfig(selectedMode, from, until,
+            val next = AlarmConfig(selectedMode, from, until,
                 times.earliestMs, times.latestMs, true)
-            AlarmScheduler.schedule(this, config)
-            AlarmStore.save(this, config)
+            AlarmScheduler.schedule(this, next)
+            AlarmStore.save(this, next)
             refresh()
             Toast.makeText(this, "Wekker ingesteld ✓", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
@@ -330,59 +280,44 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun requestNeededPermissions() {
-        val wanted = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            wanted.add(Manifest.permission.POST_NOTIFICATIONS)
-        if (Build.VERSION.SDK_INT >= 29 &&
-            checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED)
-            wanted.add(Manifest.permission.ACTIVITY_RECOGNITION)
-        if (wanted.isNotEmpty()) requestPermissions(wanted.toTypedArray(), 15)
-    }
-
-    private fun timeLabel(minute: Int) = "%02d:%02d".format(minute / 60, minute % 60)
-
+    private fun formatMinute(min: Int) = "%02d:%02d".format(min / 60, min % 60)
     private fun refresh() {
         if (!::status.isInitialized) return
         val c = AlarmStore.read(this)
         val ringing = AlarmStore.isRinging(this)
         val tracking = AlarmStore.isTracking(this)
-        val fmt = DateTimeFormatter.ofPattern("EEE d MMM HH:mm")
         val smart = selectedMode == AlarmMode.SMART
         fixedTab.background = shape(if (smart) card else mint, 24)
         smartTab.background = shape(if (smart) mint else card, 24)
         fixedTab.setTextColor(if (smart) muted else ink)
         smartTab.setTextColor(if (smart) ink else muted)
-        timePrimary.text = timeLabel(from)
-        timeSecondary.text = timeLabel(until)
+        timePrimary.text = formatMinute(from)
+        timeSecondary.text = formatMinute(until)
         windowGroup.visibility = if (smart) View.VISIBLE else View.GONE
-        heroTime.text = if (ringing) "OPSTAAN" else timeLabel(from)
-        heroTime.textSize = if (ringing) 34f else 50f
+        heroTime.text = if (ringing) "OPSTAAN" else formatMinute(from)
+        heroTime.textSize = if (ringing) 32f else 49f
         heroCaption.text = when {
-            ringing -> "Je kunt dit. Kom uit bed."
-            tracking -> "We zoeken een goed wekmoment"
-            smart -> "Licht wakker, in jouw tijdvak"
-            else -> "Stil, maar vastberaden"
+            ringing -> "Stoppen kan alleen op de oplader"
+            tracking -> "Zoeken naar het juiste wekmoment"
+            smart -> "Wakker worden binnen je tijdvak"
+            else -> "Stil alarm, geen snooze"
         }
         status.text = when {
-            ringing -> "●  ALARM ACTIEF"
+            ringing -> "●  TRILALARM ACTIEF"
             tracking -> "●  SLIM WEKVENSTER ACTIEF"
-            c.enabled -> "✓  Gepland " + Instant.ofEpochMilli(c.earliestMs).atZone(ZoneId.systemDefault()).format(fmt)
-            else -> "●  GEEN ALARM GEPLAND"
+            c.enabled -> "✓  Gepland " +
+                Instant.ofEpochMilli(c.earliestMs).atZone(ZoneId.systemDefault())
+                    .format(DateTimeFormatter.ofPattern("EEE d MMM HH:mm"))
+            else -> "●  GEEN WEKKER GEPLAND"
         }
         status.setTextColor(if (ringing) warn else mint)
-        settingGroup.visibility = if (ringing || tracking) View.GONE else View.VISIBLE
-        ringingGroup.visibility = if (ringing) View.VISIBLE else View.GONE
-        emergency.visibility = if (ringing || tracking) View.VISIBLE else View.GONE
-        cancel.visibility = if (c.enabled) View.VISIBLE else View.GONE
+        settings.visibility = if (ringing || tracking) View.GONE else View.VISIBLE
+        ringingPane.visibility = if (ringing) View.VISIBLE else View.GONE
         if (ringing) {
-            val steps = AlarmStore.steps(this)
-            mission.text = steps.toString() + " / " + WakeService.MISSION_STEPS.toString() + " stappen"
-            val finish = (ringingGroup as LinearLayout).getChildAt(2) as TextView
-            finish.isEnabled = steps >= WakeService.MISSION_STEPS
-            finish.alpha = if (finish.isEnabled) 1f else 0.42f
+            chargingStatus.text = if (ChargingGate.isChargingNow(this))
+                "Opladen gedetecteerd ✓" else "Wachten op oplader…"
         }
+        cancel.visibility = if (c.enabled && !ringing && !tracking) View.VISIBLE else View.GONE
     }
 
     override fun onResume() {
@@ -392,7 +327,6 @@ class MainActivity : Activity() {
     }
     override fun onPause() {
         handler.removeCallbacks(refresher)
-        emergencyTimer?.let { handler.removeCallbacks(it) }
         super.onPause()
     }
 }
