@@ -58,6 +58,13 @@ object AlarmStore {
         pref(context).edit().putBoolean("enabled", false)
             .putBoolean("ringing", false).putBoolean("tracking", false).apply()
     }
+    /** Persist hash, not raw NFC tag UID. Enabled only after actual tag discovery. */
+    fun nfcTagFingerprint(context: Context): String? =
+        pref(context).getString("nfcTagFingerprint", null)
+    fun setNfcTagFingerprint(context: Context, fingerprint: String) {
+        require(fingerprint.length == 64 && fingerprint.all { it in '0'..'9' || it in 'a'..'f' })
+        pref(context).edit().putString("nfcTagFingerprint", fingerprint).apply()
+    }
     fun webhook(context: Context) = pref(context).getString("webhook", "") ?: ""
     fun setWebhook(context: Context, url: String) =
         pref(context).edit().putString("webhook", url).apply()
