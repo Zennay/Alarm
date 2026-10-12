@@ -1,6 +1,7 @@
 name: Android Wear OS build
 on:
   push:
+    branches: [main]
   pull_request:
 concurrency:
   group: alarm-android-${{ github.ref }}
