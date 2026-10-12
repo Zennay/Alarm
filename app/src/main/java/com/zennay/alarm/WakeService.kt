@@ -79,6 +79,8 @@ class WakeService : Service(), SensorEventListener {
     }
 
     private fun monitor() {
+        // Never demote an already ringing alarm back into silent tracking.
+        if (ringing || AlarmStore.isRinging(this)) return
         val config = AlarmStore.read(this)
         if (!config.enabled) { stopSelf(); return }
         if (System.currentTimeMillis() >= config.latestMs) { ring(); return }
