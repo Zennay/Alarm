@@ -1,6 +1,6 @@
 # Alarm · Galaxy Watch 7
 
-**Wear OS 0.2.0 preview** — stille wekker voor Galaxy Watch 7 (SM-L315F).
+**Wear OS 0.3.0 preview** — hoorbare en trillende wekker voor Galaxy Watch 7 (SM-L315F).
 
 **[APK downloaden](https://github.com/Zennay/Alarm/releases/download/alarm-preview/Alarm-WearOS.apk)** · [Release](https://github.com/Zennay/Alarm/releases/tag/alarm-preview)
 
@@ -8,15 +8,15 @@
 
 - Eén wekker tegelijk. Kies **vaste tijd** of **slim wekvenster** van 5–90 minuten.
 - De slimme modus gebruikt een experimentele bewegingsheuristiek; de uiterste tijd is hard ingepland. Geen betrouwbare REM-detectie.
-- Als de wekker afgaat trilt het horloge herhaaldelijk en stil. **Geen snooze en geen uitschakelknop**.
-- **Uitsluitend opladen stopt een actief trillend alarm.** Een batterijmelding van Android of de periodieke statuscontrole herkent opladen of een volle batterij die op de lader aangesloten is.
+- Als de wekker afgaat speelt het horloge een **zelfgekozen alarmgeluid en trillingen tegelijk**. Je kunt in de app kiezen tussen drie ingebouwde geluiden, een systeemalarmgeluid (mits de Wear OS-kiezer beschikbaar is) of een eigen audiobestand (mits de bestandskiezer beschikbaar is), met een relatieve volumeregelaar en geluidsvoorbeeld. **Geen snooze en geen uitschakelknop**.
+- **Uitsluitend opladen stopt een actief geluid- en trilalarm.** Een batterijmelding van Android of de periodieke statuscontrole herkent opladen of een volle batterij die op de lader aangesloten is.
 - Opladen zonder een actief alarm doet **niets**. Er gaan geen lampen aan en er is geen netwerkverzoek.
 - Als het horloge bij aanvang van de wekker al op de lader ligt, wordt het alarm meteen als voltooid beschouwd.
 - Geen NFC-scanner, stappenopdracht, Google Home-koppeling of telefoon vereist voor de werking.
 
 ## Testen
 
-Gebruik **Controleer oplader** om zonder alarm te testen of het horloge het laden herkent. Gebruik **Test: wekker nu starten** met de oplader binnen handbereik om het echte trillingsalarm te testen. Zie [de testhandleiding](docs/CHARGING-TEST.md).
+Stel onder **Wekkergeluid** je toon en volume in; de volumeregelaar is afhankelijk van het **systeemwekkervolume** van de Watch 7. Gebruik **Beluister geluid** om te testen. Gebruik **Controleer oplader** om zonder alarm te testen of het horloge het laden herkent. Gebruik **Test: wekker nu starten** met de oplader binnen handbereik om het echte trillingsalarm te testen. Zie [de testhandleiding](docs/CHARGING-TEST.md).
 
 De app is **experimenteel en nog niet 's nachts op de fysieke Watch 7 gevalideerd**. Gebruik een reservewekker voor belangrijke afspraken. Android kan nog altijd apps geforceerd stoppen, het horloge uitzetten of notificaties beperken; geen app is volledig onstopbaar. Als je lader niet werkt, is er bewust geen knop in de app om het alarm te stoppen, maar de Android-systeeminstellingen blijven beschikbaar.
 
