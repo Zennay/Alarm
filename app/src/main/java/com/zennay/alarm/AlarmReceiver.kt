@@ -39,8 +39,8 @@ class BootReceiver : BroadcastReceiver() {
             if (config.earliestMs > System.currentTimeMillis()) {
                 AlarmScheduler.schedule(context, config)
             } else {
-                // Reboot during a smart window: preserve the hard deadline.
-                WakeService.send(context, WakeService.RING)
+                // Reboot during smart window: skip early prediction, keep latest alarm.
+                AlarmScheduler.restoreDeadline(context, config.latestMs)
             }
         }
     }
