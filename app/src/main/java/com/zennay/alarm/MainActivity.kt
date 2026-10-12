@@ -276,7 +276,7 @@ class MainActivity : Activity() {
             ).show()
         }
         gap(root, 8)
-        val test = pill("Test trilalarm", card, muted)
+        val test = pill("Trilmotor testen (1 sec)", card, muted)
         add(root, test)
         test.setOnClickListener {
             val motor = if (Build.VERSION.SDK_INT >= 31)
@@ -288,8 +288,9 @@ class MainActivity : Activity() {
             }
             motor.vibrate(VibrationEffect.createOneShot(1000L, VibrationEffect.DEFAULT_AMPLITUDE))
         }
+        add(root, text("Dit is alleen een korte test van de trilmotor.", 10f, muted))
         gap(root, 8)
-        val trial = pill("Test: wekker nu starten", card, muted)
+        val trial = pill("Volledige wekker testen (continu)", card, mint)
         add(root, trial)
         trial.setOnClickListener {
             if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
