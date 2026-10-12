@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.os.Process
 import android.util.Log
 import kotlin.math.PI
 import kotlin.math.sin
@@ -20,6 +21,8 @@ import kotlin.math.sin
 class AlarmAudioPlayer(private val context: Context) {
     private var track: AudioTrack? = null
     private var player: MediaPlayer? = null
+    private var streamer: Thread? = null
+    @Volatile private var generation = 0L
 
     fun start() {
         stop()
@@ -59,14 +62,32 @@ class AlarmAudioPlayer(private val context: Context) {
         )
     }
 
+    /**
+     * A MODE_STATIC loop is not reliable on every Wear OS audio HAL: some
+     * devices play its buffer only once. Stream PCM continuously instead.
+     */
+    fun isPlaying(): Boolean {
+        if (SoundSettings.volumePercent(context) <= 0) return true
+        player?.let { return try { it.isPlaying } catch (_: Exception) { false } }
+        track?.let {
+            return try {
+                it.playState == AudioTrack.PLAYSTATE_PLAYING && streamer?.isAlive == true
+            } catch (_: Exception) { false }
+        }
+        return false
+    }
+
     fun stop() {
+        generation++
+        streamer?.interrupt()
+        streamer = null
         player?.let {
             try { it.stop() } catch (_: IllegalStateException) {}
             try { it.release() } catch (_: Exception) {}
         }
         player = null
         track?.let {
-            try { it.pause(); it.flush() } catch (_: IllegalStateException) {}
+            try { it.pause(); it.flush() } catch (_: Exception) {}
             try { it.release() } catch (_: Exception) {}
         }
         track = null
@@ -75,6 +96,10 @@ class AlarmAudioPlayer(private val context: Context) {
     private fun startTone(choice: AlarmSound, volume: Float) {
         try {
             val pcm = makeTone(choice)
+            val minBuffer = AudioTrack.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            check(minBuffer > 0) { "Unsupported audio format: minBuffer=$minBuffer" }
             val t = AudioTrack.Builder()
                 .setAudioAttributes(attributes())
                 .setAudioFormat(
@@ -84,16 +109,36 @@ class AlarmAudioPlayer(private val context: Context) {
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build()
                 )
-                .setBufferSizeInBytes(pcm.size * 2)
-                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(maxOf(minBuffer, 8192))
+                .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
-            val written = t.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
-            check(written == pcm.size) { "AudioTrack write=$written of ${pcm.size}" }
-            val loops = t.setLoopPoints(0, pcm.size, -1)
-            check(loops == AudioTrack.SUCCESS) { "AudioTrack loop failed: $loops" }
+            check(t.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack not initialized" }
             t.setVolume(volume)
-            t.play()
             track = t
+            val session = generation
+            val thread = Thread({
+                Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+                try {
+                    while (generation == session && !Thread.currentThread().isInterrupted) {
+                        var offset = 0
+                        while (offset < pcm.size && generation == session) {
+                            val written = t.write(
+                                pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING
+                            )
+                            if (written <= 0)
+                                throw IllegalStateException("AudioTrack stream write failed: $written")
+                            offset += written
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (generation == session) Log.e(TAG, "Continuous alarm audio failed", e)
+                }
+            }, "AlarmContinuousAudio")
+            thread.isDaemon = true
+            streamer = thread
+            t.play()
+            thread.start()
+            Log.i(TAG, "Started continuous MODE_STREAM alarm audio")
         } catch (e: Exception) {
             Log.e(TAG, "Cannot start alarm speaker, watch vibration remains active", e)
             stop()
