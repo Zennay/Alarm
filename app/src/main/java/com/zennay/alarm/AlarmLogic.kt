@@ -75,3 +75,12 @@ class MotionGate(private val windowStartMs: Long) {
         return triggered
     }
 }
+
+/**
+ * Clock changes are never a dismissal event. The scheduled deadline may have
+ * passed, but an alarm that is already ringing still requires real charging.
+ */
+object AlarmContinuationPolicy {
+    fun shouldExpire(nowMs: Long, latestMs: Long, alreadyRinging: Boolean): Boolean =
+        nowMs >= latestMs && !alreadyRinging
+}
