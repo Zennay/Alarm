@@ -105,8 +105,12 @@ class WakeService : Service(), SensorEventListener {
             VibrationEffect.createWaveform(waveform, intArrayOf(0, 255, 0, 255, 0, 255, 0), 1)
         else VibrationEffect.createWaveform(waveform, 1)
         vibrator?.vibrate(effect)
-        sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
-            sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        try {
+            sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
+                sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        } catch (denied: SecurityException) {
+            Log.w("Alarm", "Activity recognition permission denied; use emergency stop", denied)
         }
         try {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
