@@ -37,6 +37,18 @@ object AlarmScheduler {
         }
     }
 
+    /** After reboot during a smart window, restore *deadline*, never alarm immediately. */
+    fun restoreDeadline(c: Context, latestMs: Long) {
+        if (latestMs <= System.currentTimeMillis() || !canSchedule(c)) return
+        alarmManager(c).setAlarmClock(
+            AlarmManager.AlarmClockInfo(latestMs, PendingIntent.getActivity(
+                c, 0, Intent(c, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )),
+            intent(c, AlarmReceiver.DEADLINE, 102)
+        )
+    }
+
     fun cancel(c: Context) {
         val am = alarmManager(c)
         am.cancel(intent(c, AlarmReceiver.START, 101))
