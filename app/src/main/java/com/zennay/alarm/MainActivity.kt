@@ -221,7 +221,7 @@ class MainActivity : Activity() {
             })
         }
         add(settingsColumn, volume)
-        val hear = pill("▶ Beluister geluid", card, mint)
+        val hear = pill("▶ Geluid beluisteren (4 sec)", card, mint)
         add(settingsColumn, hear)
         hear.setOnClickListener {
             stopSoundPreview()
