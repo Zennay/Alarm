@@ -18,7 +18,7 @@ object ChargingGate {
         ringing && isCharging(plugged, status)
 
     data class State(val plugged: Int, val status: Int) {
-        val charging: Boolean get() = isCharging(plugged, status)
+        val charging: Boolean get() = ChargingGate.isCharging(plugged, status)
     }
 
     fun stateFromIntent(intent: Intent?): State {
