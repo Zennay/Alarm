@@ -251,7 +251,7 @@ class MainActivity : Activity() {
             if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
             AlertDialog.Builder(this)
                 .setTitle("Wekker testen?")
-                .setMessage("Geluid en trillingen blijven doorgaan totdat je horloge oplaadt. Houd de oplader bij de hand.")
+                .setMessage("De wekker trilt zonder geluid totdat je horloge oplaadt. Houd de oplader bij de hand.")
                 .setNegativeButton("Terug", null)
                 .setPositiveButton("Start test") { _, _ ->
                     val now = System.currentTimeMillis()
