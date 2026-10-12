@@ -41,6 +41,20 @@ class WakeService : Service(), SensorEventListener {
     private var batteryReceiverRegistered = false
     private val handler = Handler(Looper.getMainLooper())
 
+    // Some Wear OS builds cap a single long-running vibrator waveform.
+    // Re-arm the requested haptics while the persisted alarm is still active.
+    private val keepVibrating = object : Runnable {
+        override fun run() {
+            if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
+            if (ChargingGate.isChargingNow(this@WakeService)) {
+                dismissForCharging()
+                return
+            }
+            startVibration()
+            handler.postDelayed(this, VIBRATION_REARM_MS)
+        }
+    }
+
     private val chargeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (!ringing || !AlarmStore.isRinging(this@WakeService)) return
@@ -148,6 +162,7 @@ class WakeService : Service(), SensorEventListener {
         sensors.unregisterListener(this)
         gate = null
         AlarmStore.setRinging(this, true)
+        AlarmScheduler.scheduleRecovery(this)
         foreground("Tijd om op te staan", "Plaats je horloge op de oplader om te stoppen")
         hold(90L * 60_000)
 
@@ -180,12 +195,9 @@ class WakeService : Service(), SensorEventListener {
         handler.removeCallbacks(pollCharging)
         handler.postDelayed(pollCharging, CHARGING_POLL_MS)
 
-        // Maximum *requested* strength (wearable firmware decides actual haptics).
-        val pattern = longArrayOf(0, 700, 220, 700, 220, 700, 600)
-        val effect = if (vibrator?.hasAmplitudeControl() == true)
-            VibrationEffect.createWaveform(pattern, intArrayOf(0, 255, 0, 255, 0, 255, 0), 1)
-        else VibrationEffect.createWaveform(pattern, 1)
-        vibrator?.vibrate(effect)
+        startVibration()
+        handler.removeCallbacks(keepVibrating)
+        handler.postDelayed(keepVibrating, VIBRATION_REARM_MS)
         try {
             alarmAudio?.stop()
             alarmAudio = AlarmAudioPlayer(this).also { it.start() }
@@ -202,11 +214,25 @@ class WakeService : Service(), SensorEventListener {
         }
     }
 
+    private fun startVibration() {
+        // Maximum *requested* strength (wearable firmware decides actual haptics).
+        val pattern = longArrayOf(0, 700, 220, 700, 220, 700, 600)
+        val effect = if (vibrator?.hasAmplitudeControl() == true)
+            VibrationEffect.createWaveform(pattern, intArrayOf(0, 255, 0, 255, 0, 255, 0), 1)
+        else VibrationEffect.createWaveform(pattern, 1)
+        try {
+            vibrator?.vibrate(effect)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot re-arm haptic alarm; audio continues", e)
+        }
+    }
+
     private fun dismissForCharging() {
         if (!ringing || !AlarmStore.isRinging(this)) return
         Log.i(TAG, "CHARGING_DETECTED: dismiss active ringing alarm")
         ringing = false
         handler.removeCallbacks(pollCharging)
+        handler.removeCallbacks(keepVibrating)
         AlarmScheduler.cancel(this)
         AlarmStore.setDisabled(this)
         vibrator?.cancel()
@@ -236,7 +262,14 @@ class WakeService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     override fun onDestroy() {
+        // An Android lifecycle teardown is NOT user dismissal. Keep a recovery
+        // wakeup pending so the charge-only alarm can resume after service loss.
+        if (AlarmStore.isRinging(this) && !ChargingGate.isChargingNow(this)) {
+            try { AlarmScheduler.scheduleRecovery(this, 10_000L) }
+            catch (e: Exception) { Log.e(TAG, "Alarm recovery scheduling failed", e) }
+        }
         handler.removeCallbacks(pollCharging)
+        handler.removeCallbacks(keepVibrating)
         disarmChargingReceiver()
         sensors.unregisterListener(this)
         vibrator?.cancel()
@@ -252,6 +285,7 @@ class WakeService : Service(), SensorEventListener {
         private const val CHANNEL_TRACKING = "alarm_tracking"
         private const val NOTIFICATION_ID = 41
         private const val CHARGING_POLL_MS = 2_000L
+        private const val VIBRATION_REARM_MS = 40_000L
         const val MONITOR = "com.zennay.alarm.MONITOR"
         const val RING = "com.zennay.alarm.RING"
 
