@@ -32,7 +32,7 @@
         <service android:name=".WakeService" android:exported="false"
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-set wearable alarm: motion sensing and charge-to-dismiss audible and haptic alarm" />
+                android:value="User-set wearable alarm: motion sensing and charge-to-dismiss vibration-only alarm" />
         </service>
     </application>
 </manifest>
