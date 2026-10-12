@@ -36,7 +36,7 @@ object AlarmStore {
             .putLong("earlyMs", config.earliestMs)
             .putLong("lateMs", config.latestMs)
             .putBoolean("enabled", config.enabled)
-            .putBoolean("ringing", false).putBoolean("tracking", false).putInt("steps", 0)
+            .putBoolean("ringing", false).putBoolean("tracking", false)
             .apply()
     }
 
@@ -48,24 +48,8 @@ object AlarmStore {
     }
     fun isRinging(context: Context) = pref(context).getBoolean("ringing", false)
     fun isTracking(context: Context) = pref(context).getBoolean("tracking", false)
-    fun steps(context: Context) = pref(context).getInt("steps", 0)
-    fun incrementSteps(context: Context): Int {
-        val next = steps(context) + 1
-        pref(context).edit().putInt("steps", next).apply()
-        return next
-    }
     fun setDisabled(context: Context) {
         pref(context).edit().putBoolean("enabled", false)
             .putBoolean("ringing", false).putBoolean("tracking", false).apply()
     }
-    /** Persist hash, not raw NFC tag UID. Enabled only after actual tag discovery. */
-    fun nfcTagFingerprint(context: Context): String? =
-        pref(context).getString("nfcTagFingerprint", null)
-    fun setNfcTagFingerprint(context: Context, fingerprint: String) {
-        require(fingerprint.length == 64 && fingerprint.all { it in '0'..'9' || it in 'a'..'f' })
-        pref(context).edit().putString("nfcTagFingerprint", fingerprint).apply()
-    }
-    fun webhook(context: Context) = pref(context).getString("webhook", "") ?: ""
-    fun setWebhook(context: Context, url: String) =
-        pref(context).edit().putString("webhook", url).apply()
 }
