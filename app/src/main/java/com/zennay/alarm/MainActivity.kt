@@ -253,6 +253,12 @@ class MainActivity : Activity() {
             }
             motor.vibrate(VibrationEffect.createOneShot(1000L, VibrationEffect.DEFAULT_AMPLITUDE))
         }
+        gap(page, 10)
+        val nfc = pill("NFC-sticker testen  →", card, mint)
+        add(page, nfc)
+        nfc.setOnClickListener {
+            startActivity(Intent(this, NfcProbeActivity::class.java))
+        }
         gap(page, 20)
 
         val advanced = column()
@@ -294,7 +300,7 @@ class MainActivity : Activity() {
             }
         }
         gap(advancedBody, 11)
-        add(advancedBody, text("NFC-sticker uitlezen is niet beschikbaar via de standaard Watch 7-API. De stappenopdracht bewijst geen badkamerlocatie.", 11f, muted))
+        add(advancedBody, text("NFC-readerfunctie ontbreekt in de Watch 7 featurelijst. Test 3 Android-methoden; alleen een echte tagmelding bevestigt werking.", 11f, muted))
         finish.isEnabled = false
         // Enable via live refresh without adding sensors to this Activity.
         finish.tag = "mission_complete"
