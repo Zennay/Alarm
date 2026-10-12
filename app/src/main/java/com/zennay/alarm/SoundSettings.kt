@@ -45,7 +45,7 @@ object SoundSettings {
 
     fun setSelectedUri(context: Context, type: AlarmSound, uri: Uri) {
         require(type == AlarmSound.CUSTOM_FILE || type == AlarmSound.SYSTEM_RINGTONE)
-        require(uri.scheme == "content" || uri.scheme == "android.resource")
+        require(uri.scheme == "content" || uri.scheme == "android.resource" || uri.scheme == "file")
         preferences(context).edit().putString("uri_${type.name}", uri.toString()).apply()
         setChoice(context, type)
     }
