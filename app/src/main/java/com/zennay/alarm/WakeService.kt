@@ -74,6 +74,11 @@ class WakeService : Service(), SensorEventListener {
             MONITOR -> monitor()
             RING -> ring()
             COMPLETE -> if (ringing && AlarmStore.steps(this) >= MISSION_STEPS) finish(false)
+            NFC_COMPLETE -> {
+                val fingerprint = intent.getStringExtra(EXTRA_NFC_HASH)
+                if (fingerprint != null && AlarmStore.isRinging(this) &&
+                    fingerprint == AlarmStore.nfcTagFingerprint(this)) finish(false)
+            }
             EMERGENCY -> finish(true)
             else -> when {
                 AlarmStore.isRinging(this) -> ring()
@@ -162,6 +167,12 @@ class WakeService : Service(), SensorEventListener {
         const val MONITOR = "com.zennay.alarm.MONITOR"
         const val RING = "com.zennay.alarm.RING"
         const val COMPLETE = "com.zennay.alarm.COMPLETE"
+        const val NFC_COMPLETE = "com.zennay.alarm.NFC_COMPLETE"
+        private const val EXTRA_NFC_HASH = "nfcHash"
+        fun sendNfcCompleted(context: Context, fingerprint: String) {
+            context.startService(Intent(context, WakeService::class.java)
+                .setAction(NFC_COMPLETE).putExtra(EXTRA_NFC_HASH, fingerprint))
+        }
         const val EMERGENCY = "com.zennay.alarm.EMERGENCY"
 
         fun send(context: Context, action: String) {
