@@ -7,6 +7,15 @@ import java.time.Instant
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == RECOVER) {
+            // A time boundary is never a reason to stop. Only resume alarms
+            // which are still persistently ringing; charge dismissal clears it.
+            if (AlarmStore.isRinging(context)) {
+                AlarmScheduler.scheduleRecovery(context)
+                WakeService.send(context, WakeService.RING)
+            }
+            return
+        }
         val saved = AlarmStore.read(context)
         if (!saved.enabled) return
         when (intent.action) {
@@ -23,6 +32,7 @@ class AlarmReceiver : BroadcastReceiver() {
     companion object {
         const val START = "com.zennay.alarm.START"
         const val DEADLINE = "com.zennay.alarm.DEADLINE"
+        const val RECOVER = "com.zennay.alarm.RECOVER"
     }
 }
 
