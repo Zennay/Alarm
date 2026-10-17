@@ -18,13 +18,13 @@ object TimePlanner {
         require(startMinute in 0..1439 && endMinute in 0..1439)
         val interval = (endMinute - startMinute + 1440) % 1440
         if (mode == AlarmMode.SMART) require(interval in 5..90) { "Kies een wekvenster van 5 tot 90 minuten." }
-        val now = Instant.ofEpochMilli(nowMs).atZone(zone)
-        var day = now.toLocalDate()
-        var early = localAt(day, startMinute, zone)
-        if (!early.isAfter(now)) {
-            day = day.plusDays(1)
-            early = localAt(day, startMinute, zone)
-        }
+        val now = Instant.ofEpochMilli(nowMs)
+        val day = now.atZone(zone).toLocalDate()
+        // Fall-back clocks can present the same local minute twice. Compare
+        // each valid offset on the instant timeline before advancing the day.
+        val early = nextFutureOn(day, startMinute, zone, now)
+            ?: nextFutureOn(day.plusDays(1), startMinute, zone, now)
+            ?: error("No future alarm instant could be resolved")
         val late = if (mode == AlarmMode.FIXED) early else {
             // Offset on the instant timeline avoids a negative interval at the DST transition.
             early.plusMinutes(interval.toLong())
@@ -32,8 +32,18 @@ object TimePlanner {
         return AlarmTimes(early.toInstant().toEpochMilli(), late.toInstant().toEpochMilli())
     }
 
-    private fun localAt(day: LocalDate, minuteOfDay: Int, zone: ZoneId): ZonedDateTime =
-        LocalDateTime.of(day, java.time.LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)).atZone(zone)
+    private fun nextFutureOn(day: LocalDate, minuteOfDay: Int, zone: ZoneId, now: Instant): ZonedDateTime? {
+        val local = LocalDateTime.of(
+            day, java.time.LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)
+        )
+        val offsets = zone.rules.getValidOffsets(local)
+        // Spring-forward gaps retain java.time's established shift-to-valid
+        // behaviour. Ordinary dates have one offset; autumn overlaps have two.
+        val occurrences = if (offsets.isEmpty()) listOf(local.atZone(zone))
+            else offsets.map { ZonedDateTime.ofLocal(local, zone, it) }
+        return occurrences.filter { it.toInstant().isAfter(now) }
+            .minByOrNull { it.toInstant() }
+    }
 }
 
 /**
