@@ -19,17 +19,31 @@ object TimePlanner {
         val interval = (endMinute - startMinute + 1440) % 1440
         if (mode == AlarmMode.SMART) require(interval in 5..90) { "Kies een wekvenster van 5 tot 90 minuten." }
         val now = Instant.ofEpochMilli(nowMs).atZone(zone)
-        var day = now.toLocalDate()
-        var early = localAt(day, startMinute, zone)
-        if (!early.isAfter(now)) {
-            day = day.plusDays(1)
-            early = localAt(day, startMinute, zone)
-        }
+        // A civil time can happen twice on autumn DST rollback. Select the
+        // earliest *future instant*, not always the earlier UTC offset.
+        val early = nextLocalOccurrence(now.toLocalDate(), startMinute, now, zone)
         val late = if (mode == AlarmMode.FIXED) early else {
             // Offset on the instant timeline avoids a negative interval at the DST transition.
             early.plusMinutes(interval.toLong())
         }
         return AlarmTimes(early.toInstant().toEpochMilli(), late.toInstant().toEpochMilli())
+    }
+
+    private fun nextLocalOccurrence(
+        day: LocalDate, minuteOfDay: Int, now: ZonedDateTime, zone: ZoneId
+    ): ZonedDateTime {
+        val local = LocalDateTime.of(
+            day, java.time.LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)
+        )
+        // ZoneRules gives BOTH legal offsets when clocks fall back. For a
+        // spring-forward gap there is no legal offset: retain Java's existing
+        // atZone gap resolution rather than silently skipping the alarm.
+        val offsets = zone.rules.getValidOffsets(local)
+        val today = if (offsets.isEmpty()) listOf(local.atZone(zone)) else
+            offsets.map { offset -> ZonedDateTime.ofLocal(local, zone, offset) }
+        return today.filter { it.isAfter(now) }
+            .minByOrNull { it.toInstant() }
+            ?: localAt(day.plusDays(1), minuteOfDay, zone)
     }
 
     private fun localAt(day: LocalDate, minuteOfDay: Int, zone: ZoneId): ZonedDateTime =
