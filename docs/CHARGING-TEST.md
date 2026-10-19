@@ -39,3 +39,29 @@ Versie 0.3.3 bewaart een actief alarm ook voorbij de oorspronkelijke minuut en r
 Een geslaagde CI-build bewijst alleen compilatie en unit-tests, niet de betrouwbaarheid van Galaxy Watch-7-laaddetectie. De vibratiemotor, Android background-beperkingen en de daadwerkelijke lader moeten apart worden gevalideerd. Gebruik niet als enige wekker totdat dit op het echte horloge is getest.
 
 Android documentatie: https://developer.android.com/reference/android/os/BatteryManager
+
+
+## Tijdswissel: eenmalig alarm op dubbele lokale tijd
+
+De broncorrectie voor de Europese wintertijdwissel op **25 oktober 2026**
+laat `TimePlanner.next` voor eenmalige **VAST** en **SLIM**-alarmen
+alle werkelijk geldige UTC-offsets van de gekozen lokale tijd bekijken.
+Bijvoorbeeld: 02:30 vindt eerst plaats met UTC+02 en later nog een keer
+met UTC+01. Als 02:30 UTC+02 al voorbij is maar de tweede 02:30 UTC+01
+nog in de toekomst ligt, wordt die tweede kans **op dezelfde dag**
+gepland in plaats van op maandag 26 oktober. Pas nadat beide echte
+instanten zijn verstreken volgt het volgende lokale etmaal.
+
+Bij de zomertijdsprong, waar de lokale tijd niet bestaat, behoudt de app
+het bestaande Java-`atZone`-gedrag. De eindgrens van het slimme venster
+blijft een verstreken duur (5–90 minuten) vanaf de geselecteerde
+werkelijke startinstant, niet een naïef verschil in dubbelzinnige
+wandkloktijden.
+
+**Releasegrens:** deze toelichting hoort bij een zelfstandige
+broncorrectie op de nog onuitgebrachte Wear OS-eigenaarbranch.
+Geen APK is hierdoor automatisch opnieuw uitgebracht of op een horloge
+geaccepteerd. De al bestaande verplichtingen voor exacte CI, review,
+fysieke lader-/trilduur en wintertijdgedrag blijven bestaan.
+Gebruik een reservewekker totdat eigenaar en fysieke Android/Wear OS
+acceptatie hebben plaatsgevonden.
