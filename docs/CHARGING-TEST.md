@@ -65,3 +65,28 @@ geaccepteerd. De al bestaande verplichtingen voor exacte CI, review,
 fysieke lader-/trilduur en wintertijdgedrag blijven bestaan.
 Gebruik een reservewekker totdat eigenaar en fysieke Android/Wear OS
 acceptatie hebben plaatsgevonden.
+
+## Slim wekvenster: betrouwbare bewegingsopvolging (bronreparatie)
+
+De bewegingstrigger mag niet beginnen op basis van een gedeeltelijke
+meting van vóór de vereiste **twee minuten opwarmtijd**. De bron telt
+nu uitsluitend twee opeenvolgende complete activiteitsblokken van
+15 seconden die **beide na** die twee minuten zijn begonnen.
+De vroegst mogelijke bewegingstrigger na inschakelen ligt daardoor
+ongeveer 30 seconden na de opwarmperiode, niet op het eerste moment
+dat de twee minuten verlopen.
+
+Bij een onderbreking van meer dan vijf seconden tussen de
+bewegingsmetingen, een terugspringende klok of een ongeldige
+accelerometerwaarde worden de oude bewegingsblokken gewist:
+oude en nieuwe sensoractiviteit tellen dan nooit samen als
+opeenvolgende waarnemingen. Wanneer er geen bruikbare
+beweging is, blijft de al bestaande **uiterste wektijd** gelden;
+dit is nadrukkelijk geen REM-faseherkenning.
+
+Deze wijziging hoort bij [de bestaande bron-PR #5](https://github.com/Zennay/Alarm/pull/5).
+Er is geen wijziging in het trillingspatroon, de lader-als-enige-stopactie,
+persistente alarmstatus of de productie-/APK-releaseprocedure.
+De correctie is niet op een Galaxy Watch geverifieerd; gebruik
+een reservewekker totdat de echte Watch-acceptatie en bestaande
+verplichte CI, review en eigenaaracceptatie zijn afgerond.
