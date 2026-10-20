@@ -107,7 +107,10 @@ class MotionGate(private val windowStartMs: Long) {
             // warm-up. Before this fix an active bucket from minute 1:45
             // could count toward the early wake exactly at minute 2:00.
             val afterWarmup = bucketStart - windowStartMs >= 120_000L
-            activeBuckets = if (afterWarmup && averageDelta > 0.65)
+            // One isolated accelerometer spike in a sparsely sampled 15s
+            // interval is not sustained stirring. Require enough real vector
+            // deltas before accepting each of the two motion buckets.
+            activeBuckets = if (afterWarmup && count >= 4 && averageDelta > 0.65)
                 activeBuckets + 1 else 0
             if (activeBuckets >= 2) triggered = true
             bucketStart = timeMs
