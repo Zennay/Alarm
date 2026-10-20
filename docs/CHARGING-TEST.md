@@ -80,7 +80,10 @@ Bij een onderbreking van meer dan vijf seconden tussen de
 bewegingsmetingen, een terugspringende klok of een ongeldige
 accelerometerwaarde worden de oude bewegingsblokken gewist:
 oude en nieuwe sensoractiviteit tellen dan nooit samen als
-opeenvolgende waarnemingen. Wanneer er geen bruikbare
+opeenvolgende waarnemingen. Een blok heeft daarnaast minstens vier
+echte geldige accelerometerverschillen nodig. Eén losse, mogelijk
+misleidende sensorspike kan daardoor niet zelfstandig een actief
+15-secondenblok vertegenwoordigen. Wanneer er geen bruikbare
 beweging is, blijft de al bestaande **uiterste wektijd** gelden;
 dit is nadrukkelijk geen REM-faseherkenning.
 
