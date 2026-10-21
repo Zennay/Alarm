@@ -255,3 +255,24 @@ Bij afgewezen exacte-alarmrechten, een geforceerde appstop of defecte
 opslag is een reservewekker noodzakelijk. Het alarm stopt nog steeds
 alleen na werkelijk, stabiel waargenomen opladen; deze wijziging maakt
 geen snoozeknop, geluid of alternatieve stopactie mogelijk.
+
+
+## Annuleren van een echte geplande wekker bij opslagfouten
+
+De bevestiging **Ja, annuleren** bewaart eerst synchroon en controleerbaar
+dat de *exactzelfde* oude ingeplande wekker is uitgeschakeld. Als die
+privéopslagbewerking mislukt, verwijdert de knop géén Android-timer en
+verschijnt **Annuleren mislukt; vorige wekker behouden**. Een vertraging
+tussen dialoog openen en accepteren kan niet een andere nieuwe wekker
+annuleren. Na de succesvolle uitgeschakeld-opslag probeert de app de
+overgebleven `PendingIntent`-timers op te ruimen; mocht Android die
+opruimactie weigeren, dan weigert de eigen `AlarmReceiver` alsnog
+binnengekomen berichten op basis van de duurzaam uitgeschakelde staat.
+De gebruiker krijgt in dat geval een aparte waarschuwing dat Android
+alarmen moeten worden gecontroleerd.
+
+De annulering blijft onmogelijk terwijl de wekker trilt of een slim
+wekvenster volgt. Een actief trilalarm stoppen blijft uitsluitend
+mogelijk na echt, stabiel waargenomen opladen. Zonder onafhankelijke
+Watch 7-acceptatie of exact-head automatische build is dit uitsluitend
+een broncodewijziging en geen nieuwe hardwarebetrouwbaarheidsclaim.
