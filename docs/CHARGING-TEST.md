@@ -148,3 +148,35 @@ Er is geen APK geïnstalleerd, ondertekend of live gevalideerd.
 Bestaande exacte-head CI, onafhankelijke review, eigenaaracceptatie en
 fysieke Galaxy Watch 7-checks blijven verplicht; gebruik voorlopig
 een onafhankelijke reservewekker.
+
+## Voorbeeld bij opslaan en toestemming voor exacte alarmen
+
+Zolang er **geen ingeschakelde wekker** is, of de geselecteerde modus/tijd
+nog **niet is opgeslagen**, toont de app een afzonderlijk **VOORBEELD BIJ
+OPSLAAN · NOG NIET ACTIEF**. Dit voorbeeld gebruikt dezelfde
+`TimePlanner.next` als het daadwerkelijke instellen. De geplande echte
+datum, wektijd en UTC-offset zijn daardoor alvast te beoordelen, ook
+wanneer de Nederlandse wintertijd één lokaal tijdstip twee keer laat
+voorkomen. Bij een slim wekvenster staat eveneens de uiterste wektijd.
+Een ongeldig slim venster (niet tussen vijf en negentig minuten) geeft
+een duidelijke melding in plaats van een misleidende voorbeeldtijd.
+
+De voorbeeldweergave **roept geen Android AlarmManager aan**, bewaart geen
+instelling en vervangt nooit de al ingeschakelde wekker. Een voorstel
+heeft bewust geen actief vinkje. Alleen de expliciete knop
+**Wekker instellen** plant werkelijk de eerstvolgende gebeurtenis.
+
+Wanneer Wear OS geen toestemming meer geeft om exacte alarmen te plannen,
+staat er een zichtbare waarschuwing en een aparte knop **Open
+alarmtoestemming**. Zowel die knop als de opslaanroute delen een
+afgeschermde instellingenactie met een gebruikersmelding als de
+bestemming niet beschikbaar is. Zonder toestemming meldt de app geen
+geslaagde nieuwe alarmplanning. De waarschuwing zelf herstelt bestaande
+Android-alarmen niet; bekijk de toestemmingsstatus en stel waar nodig
+opnieuw in.
+
+Alle nieuwe schermen zijn uitsluitend sourcecode op
+[PR #5](https://github.com/Zennay/Alarm/pull/5). Er is geen APK-release,
+ondertekening, installatie of daadwerkelijke horlogeverificatie gebeurd.
+Bestaande verplichte CI, onafhankelijke PR-review en echte stille
+trillings-, wintertijd- en laadacceptatie blijven onverkort vereist.
