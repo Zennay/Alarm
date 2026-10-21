@@ -37,6 +37,7 @@ object AlarmStore {
             .putLong("lateMs", config.latestMs)
             .putBoolean("enabled", config.enabled)
             .putBoolean("ringing", false).putBoolean("tracking", false)
+            .putBoolean("expiredUnconfirmed", false)
             .commit() // Success means the one-shot metadata reached durable preferences.
     }
 
@@ -48,10 +49,25 @@ object AlarmStore {
     }
     fun isRinging(context: Context) = pref(context).getBoolean("ringing", false)
     fun isTracking(context: Context) = pref(context).getBoolean("tracking", false)
+    /**
+     * An elapsed one-shot found while no wake service is running cannot be
+     * proven delivered after a cold reboot/clock correction. Preserve its
+     * original scheduled instant for the user's next glance at the watch.
+     * A new real alarm or explicit cancellation clears the warning.
+     */
+    fun expireUnconfirmed(context: Context): Boolean =
+        pref(context).edit().putBoolean("enabled", false)
+            .putBoolean("ringing", false).putBoolean("tracking", false)
+            .putBoolean("expiredUnconfirmed", true).commit()
+
+    fun hasUnconfirmedExpiry(context: Context): Boolean =
+        pref(context).getBoolean("expiredUnconfirmed", false)
+
     /** Persist dismissal/cancellation state before claiming an alarm is off.
      * The Boolean is observed by user-triggered cancellation. A receiver
      * holding an obsolete PendingIntent also refuses disabled configs. */
     fun setDisabled(context: Context): Boolean =
         pref(context).edit().putBoolean("enabled", false)
-            .putBoolean("ringing", false).putBoolean("tracking", false).commit()
+            .putBoolean("ringing", false).putBoolean("tracking", false)
+            .putBoolean("expiredUnconfirmed", false).commit()
 }
