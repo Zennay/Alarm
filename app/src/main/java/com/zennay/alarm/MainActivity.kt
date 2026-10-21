@@ -289,6 +289,18 @@ class MainActivity : Activity() {
     }
 
     private fun formatMinute(min: Int) = "%02d:%02d".format(min / 60, min % 60)
+
+    // Show the actual scheduled INSTANT, including its UTC offset. On the
+    // autumn clock rollback both 02:30+02:00 and 02:30+01:00 exist, so
+    // the wall-clock digits alone are not enough for a trustworthy preview.
+    private fun plannedAlarmSummary(c: AlarmConfig): String {
+        val zone = ZoneId.systemDefault()
+        val display = DateTimeFormatter.ofPattern("EEE d MMM HH:mm XXX")
+        val earliest = Instant.ofEpochMilli(c.earliestMs).atZone(zone).format(display)
+        if (c.mode != AlarmMode.SMART) return "✓  Gepland $earliest"
+        val latest = Instant.ofEpochMilli(c.latestMs).atZone(zone).format(display)
+        return "✓  Slim vanaf $earliest\nUiterlijk $latest"
+    }
     private fun refresh() {
         if (!::status.isInitialized) return
         val c = AlarmStore.read(this)
@@ -313,9 +325,7 @@ class MainActivity : Activity() {
         status.text = when {
             ringing -> "●  WEKKER ACTIEF"
             tracking -> "●  SLIM WEKVENSTER ACTIEF"
-            c.enabled -> "✓  Gepland " +
-                Instant.ofEpochMilli(c.earliestMs).atZone(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ofPattern("EEE d MMM HH:mm"))
+            c.enabled -> plannedAlarmSummary(c)
             else -> "●  GEEN WEKKER GEPLAND"
         }
         status.setTextColor(if (ringing) warn else mint)
