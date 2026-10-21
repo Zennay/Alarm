@@ -128,8 +128,10 @@ is een bewerkbaar formulier: aanpassen verandert de ingestelde wekker
 
 Als ingestelde modus of tijden van dat formulier afwijken, verschijnt
 **NIET OPGESLAGEN** met de boodschap dat de bestaande wekker blijft
-gelden. **Geplande wekker annuleren** blijft een afzonderlijke expliciete
-handeling. Deze scheiding voorkomt dat een gewijzigd tijdveld op het
+gelden. De knop **Wijzigingen terugdraaien** zet het formulier rechtstreeks
+terug naar de daadwerkelijk opgeslagen modus en tijden. Die actie wijzigt
+**geen** `AlarmManager`-planning, tracking, trillingen of opgeslagen wekker.
+**Geplande wekker annuleren** blijft een afzonderlijke expliciete handeling. Deze scheiding voorkomt dat een gewijzigd tijdveld op het
 AMOLED-scherm wordt verward met een al opnieuw geplande wekker.
 
 Als de opgeslagen **uiterste** wekdeadline al is verstreken terwijl het
