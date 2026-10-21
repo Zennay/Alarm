@@ -317,6 +317,8 @@ class MainActivity : Activity() {
         val smart = selectedMode == AlarmMode.SMART
         // The form is an editable draft. It does NOT update an armed alarm until Save.
         // Keep the main display bound to persisted schedule data, not unsaved inputs.
+        val overdue = c.enabled && !ringing && !tracking &&
+            c.latestMs <= System.currentTimeMillis()
         val pending = c.enabled && (selectedMode != c.mode ||
             from != c.firstMinute || until != c.lastMinute)
         val scheduledStart = if (c.enabled) Instant.ofEpochMilli(c.earliestMs)
@@ -341,6 +343,7 @@ class MainActivity : Activity() {
         heroCaption.text = when {
             ringing -> "Stoppen kan alleen op de oplader"
             tracking -> "Zoeken naar het juiste wekmoment"
+            overdue -> "Gepland tijdstip is verstreken"
             pending -> "Geplande tijd · invoer nog niet opgeslagen"
             c.enabled && c.mode == AlarmMode.SMART -> "Gepland slim wekvenster vanaf"
             c.enabled -> "Geplande vaste wektijd"
@@ -350,10 +353,12 @@ class MainActivity : Activity() {
         status.text = when {
             ringing -> "●  WEKKER ACTIEF"
             tracking -> "●  SLIM WEKVENSTER ACTIEF"
+            overdue -> "⚠  WEKTIJD VERSTREKEN · controleer of je wekker ging\\n" +
+                plannedAlarmSummary(c)
             c.enabled -> plannedAlarmSummary(c)
             else -> "●  GEEN WEKKER GEPLAND"
         }
-        status.setTextColor(if (ringing) warn else mint)
+        status.setTextColor(if (ringing || overdue) warn else mint)
         settings.visibility = if (ringing || tracking) View.GONE else View.VISIBLE
         ringingPane.visibility = if (ringing) View.VISIBLE else View.GONE
         if (ringing) {
