@@ -60,8 +60,9 @@ class WakeService : Service(), SensorEventListener {
             lastChargingState = state
         }
         if (chargingConfirmation.observe(state.charging, SystemClock.elapsedRealtime())) {
-            dismissForCharging()
-            return true
+            // A verified charging signal only authorizes dismissal. Never
+            // report it completed until the disabled state is durable.
+            return dismissForCharging()
         }
         return false
     }
@@ -238,20 +239,34 @@ class WakeService : Service(), SensorEventListener {
         }
     }
 
-    private fun dismissForCharging() {
-        if (!ringing || !AlarmStore.isRinging(this)) return
-        Log.i(TAG, "CHARGING_DETECTED: dismiss active ringing alarm")
+    private fun dismissForCharging(): Boolean {
+        if (!ringing || !AlarmStore.isRinging(this)) return false
+        // Preference commit can fail (for example during low-storage or OS
+        // disruption). Cancelling haptics/recovery first would acknowledge an
+        // alarm that is still persistently marked as ringing. Keep sounding
+        // and retry while the true charger signal remains stable.
+        if (!AlarmStore.setDisabled(this)) {
+            Log.e(TAG, "Charging confirmed but alarm dismissal was not stored; retrying")
+            return false
+        }
+        Log.i(TAG, "CHARGING_DETECTED: persisted dismissal of active alarm")
         ringing = false
         handler.removeCallbacks(pollCharging)
         handler.removeCallbacks(keepVibrating)
-        AlarmScheduler.cancel(this)
-        AlarmStore.setDisabled(this)
+        // Once persistent state is disabled, an in-flight receiver refuses
+        // to restart the old alarm even if OS PendingIntent cancellation fails.
+        try {
+            AlarmScheduler.cancel(this)
+        } catch (failure: Exception) {
+            Log.w(TAG, "Persisted dismissal succeeded; Android timer cleanup deferred", failure)
+        }
         vibrator?.cancel()
         disarmChargingReceiver()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        return true
     }
 
     private fun disarmChargingReceiver() {
