@@ -467,6 +467,8 @@ class MainActivity : Activity() {
         // Keep the main display bound to persisted schedule data, not unsaved inputs.
         val overdue = c.enabled && !ringing && !tracking &&
             c.latestMs <= System.currentTimeMillis()
+        val unconfirmedExpired = !c.enabled && !ringing && !tracking &&
+            AlarmStore.hasUnconfirmedExpiry(this)
         val pending = c.enabled && (selectedMode != c.mode ||
             from != c.firstMinute || until != c.lastMinute)
         val scheduledStart = if (c.enabled) Instant.ofEpochMilli(c.earliestMs)
@@ -515,6 +517,7 @@ class MainActivity : Activity() {
             ringing -> "Stoppen kan alleen op de oplader"
             tracking -> "Zoeken naar het juiste wekmoment"
             overdue -> "Gepland tijdstip is verstreken"
+            unconfirmedExpired -> "Wekactie na herstart niet bevestigd"
             pending -> "Geplande tijd · invoer nog niet opgeslagen"
             c.enabled && c.mode == AlarmMode.SMART -> "Gepland slim wekvenster vanaf"
             c.enabled -> "Geplande vaste wektijd"
@@ -526,10 +529,13 @@ class MainActivity : Activity() {
             tracking -> "●  SLIM WEKVENSTER ACTIEF"
             overdue -> "⚠  WEKTIJD VERSTREKEN · controleer of je wekker ging\n" +
                 plannedAlarmSummary(c)
+            unconfirmedExpired -> "⚠  WEKACTIE NIET BEVESTIGD NA HERSTART OF KLOKCORRECTIE\n" +
+                plannedAlarmSummary(c) +
+                "\nPlan expliciet een nieuwe wekker. Gebruik voorlopig een reservewekker."
             c.enabled -> plannedAlarmSummary(c)
             else -> "●  GEEN WEKKER GEPLAND"
         }
-        status.setTextColor(if (ringing || overdue) warn else mint)
+        status.setTextColor(if (ringing || overdue || unconfirmedExpired) warn else mint)
         settings.visibility = if (ringing || tracking) View.GONE else View.VISIBLE
         ringingPane.visibility = if (ringing) View.VISIBLE else View.GONE
         if (ringing) {
