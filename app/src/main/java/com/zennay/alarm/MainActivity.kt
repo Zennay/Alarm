@@ -169,19 +169,7 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         add(root, exactAlarmSettings)
-        exactAlarmSettings.setOnClickListener {
-            if (Build.VERSION.SDK_INT < 31 || AlarmScheduler.canSchedule(this)) {
-                refresh()
-                return@setOnClickListener
-            }
-            try {
-                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
-            } catch (unavailable: Exception) {
-                Toast.makeText(this,
-                    "Open Wear OS-instellingen en geef toestemming voor exacte alarmen.",
-                    Toast.LENGTH_LONG).show()
-            }
-        }
+        exactAlarmSettings.setOnClickListener { requestExactAlarmAccess() }
         restoreScheduled.setOnClickListener {
             // Reset only the unsaved form. Never reschedule, cancel or
             // acknowledge a ringing/tracking alarm from this action.
@@ -323,6 +311,22 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun requestExactAlarmAccess() {
+        if (Build.VERSION.SDK_INT < 31 || AlarmScheduler.canSchedule(this)) {
+            refresh()
+            return
+        }
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+        } catch (unavailable: Exception) {
+            // Some Wear OS builds do not expose the expected settings Activity.
+            // Saving still remains blocked; never silently pretend permission exists.
+            Toast.makeText(this,
+                "Open Wear OS-instellingen en geef toestemming voor exacte alarmen.",
+                Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun saveAlarm() {
         if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) {
             Toast.makeText(this, "Wacht tot je horloge oplaadt.", Toast.LENGTH_SHORT).show()
@@ -330,7 +334,7 @@ class MainActivity : Activity() {
         }
         if (!AlarmScheduler.canSchedule(this)) {
             Toast.makeText(this, "Sta exacte alarmen toe", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+            requestExactAlarmAccess()
             return
         }
         try {
