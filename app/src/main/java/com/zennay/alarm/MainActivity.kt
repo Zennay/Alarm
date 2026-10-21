@@ -264,11 +264,25 @@ class MainActivity : Activity() {
                         !current.enabled || current != armed) {
                         Toast.makeText(this, "Wekker gewijzigd; annuleren afgebroken.",
                             Toast.LENGTH_SHORT).show()
+                    } else if (!AlarmStore.setDisabled(this)) {
+                        // An OS cancellation first, followed by failed local
+                        // persistence, could leave a falsely green saved alarm.
+                        // Keep the original timer when the durable write fails.
+                        Toast.makeText(this, "Annuleren mislukt; vorige wekker behouden.",
+                            Toast.LENGTH_LONG).show()
                     } else {
-                        AlarmScheduler.cancel(this)
-                        AlarmStore.setDisabled(this)
-                        Toast.makeText(this, "Geplande wekker geannuleerd",
-                            Toast.LENGTH_SHORT).show()
+                        // The receiver ignores any delayed PendingIntent after
+                        // disabled state is committed. A cancelled OS timer is
+                        // no longer allowed to ring from stale dispatch.
+                        try {
+                            AlarmScheduler.cancel(this)
+                            Toast.makeText(this, "Geplande wekker geannuleerd",
+                                Toast.LENGTH_SHORT).show()
+                        } catch (failure: Exception) {
+                            Toast.makeText(this,
+                                "Wekker uitgeschakeld; controleer Android-alarmen.",
+                                Toast.LENGTH_LONG).show()
+                        }
                     }
                     refresh()
                 }.show()
