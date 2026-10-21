@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var heroCaption: TextView
     private lateinit var status: TextView
     private lateinit var pendingNotice: TextView
+    private lateinit var restoreScheduled: TextView
     private lateinit var fixedTab: TextView
     private lateinit var smartTab: TextView
     private lateinit var timePrimary: TextView
@@ -142,6 +143,22 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         add(root, pendingNotice)
+        gap(root, 7)
+        restoreScheduled = pill("Wijzigingen terugdraaien", card, warn).apply {
+            visibility = View.GONE
+        }
+        add(root, restoreScheduled)
+        restoreScheduled.setOnClickListener {
+            // Reset only the unsaved form. Never reschedule, cancel or
+            // acknowledge a ringing/tracking alarm from this action.
+            if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            val armed = AlarmStore.read(this)
+            if (!armed.enabled) return@setOnClickListener
+            selectedMode = armed.mode
+            from = armed.firstMinute
+            until = armed.lastMinute
+            refresh()
+        }
         gap(root, 15)
 
         settings = column().also { add(root, it) }
@@ -324,9 +341,10 @@ class MainActivity : Activity() {
         val scheduledStart = if (c.enabled) Instant.ofEpochMilli(c.earliestMs)
             .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) else null
         pendingNotice.visibility = if (pending && !ringing && !tracking) View.VISIBLE else View.GONE
+        restoreScheduled.visibility = pendingNotice.visibility
         if (pending) pendingNotice.text =
             "NIET OPGESLAGEN\nDe bestaande wekker blijft ingesteld. " +
-            "Tik op ‘Wekker instellen’ om je wijzigingen over te nemen."
+            "Stel de nieuwe tijd in of draai je invoerwijzigingen terug."
         fixedTab.background = shape(if (smart) card else mint, 24)
         smartTab.background = shape(if (smart) mint else card, 24)
         fixedTab.setTextColor(if (smart) muted else ink)
