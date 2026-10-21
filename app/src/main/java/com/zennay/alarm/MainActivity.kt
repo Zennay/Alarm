@@ -42,6 +42,8 @@ class MainActivity : Activity() {
     private lateinit var pendingNotice: TextView
     private lateinit var restoreScheduled: TextView
     private lateinit var draftPreview: TextView
+    private lateinit var exactAlarmWarning: TextView
+    private lateinit var exactAlarmSettings: TextView
     private lateinit var fixedTab: TextView
     private lateinit var smartTab: TextView
     private lateinit var timePrimary: TextView
@@ -156,6 +158,30 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         add(root, draftPreview)
+        gap(root, 7)
+        exactAlarmWarning = text("", 12f, warn, true).apply {
+            background = shape(card, 16, warn)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
+        }
+        add(root, exactAlarmWarning)
+        exactAlarmSettings = pill("Open alarmtoestemming", card, warn).apply {
+            visibility = View.GONE
+        }
+        add(root, exactAlarmSettings)
+        exactAlarmSettings.setOnClickListener {
+            if (Build.VERSION.SDK_INT < 31 || AlarmScheduler.canSchedule(this)) {
+                refresh()
+                return@setOnClickListener
+            }
+            try {
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+            } catch (unavailable: Exception) {
+                Toast.makeText(this,
+                    "Open Wear OS-instellingen en geef toestemming voor exacte alarmen.",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
         restoreScheduled.setOnClickListener {
             // Reset only the unsaved form. Never reschedule, cancel or
             // acknowledge a ringing/tracking alarm from this action.
@@ -350,6 +376,12 @@ class MainActivity : Activity() {
             .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) else null
         pendingNotice.visibility = if (pending && !ringing && !tracking) View.VISIBLE else View.GONE
         restoreScheduled.visibility = pendingNotice.visibility
+        val permissionMissing = !ringing && !tracking && !AlarmScheduler.canSchedule(this)
+        exactAlarmWarning.visibility = if (permissionMissing) View.VISIBLE else View.GONE
+        exactAlarmSettings.visibility = exactAlarmWarning.visibility
+        if (permissionMissing) exactAlarmWarning.text =
+            "EXACTE ALARMTOESTEMMING ONTBREEKT\\n" +
+            "Een nieuwe wekker kan niet worden gepland; controleer ook je al ingestelde wekker."
         // Preview the proposed NEXT actual instant, never the current saved
         // schedule. This is informational; only an explicit Save arms a wake.
         val showPreview = (!c.enabled || pending) && !ringing && !tracking
