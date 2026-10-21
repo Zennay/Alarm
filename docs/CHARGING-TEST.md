@@ -117,3 +117,32 @@ de tweevoudige 02:30, haptische doorloop en werkelijke laadstatus moeten
 apart met een geautoriseerde eigenaar worden gecontroleerd. Tot die tijd
 een onafhankelijke reservewekker gebruiken. Geen APK-uitgave of toestelupdate
 door deze bron-PR.
+
+## Geplande wekker versus nog niet opgeslagen invoer
+
+Op het hoofdscherm toont de **grote klok bij een ingeschakelde wekker de
+daadwerkelijk opgeslagen starttijd**, en de status vermeldt nog steeds de
+volledige geplande dag en UTC-offset. De tijdkeuze onder **WEKTIJD**
+is een bewerkbaar formulier: aanpassen verandert de ingestelde wekker
+**niet** voordat je op **Wekker instellen** tikt.
+
+Als ingestelde modus of tijden van dat formulier afwijken, verschijnt
+**NIET OPGESLAGEN** met de boodschap dat de bestaande wekker blijft
+gelden. **Geplande wekker annuleren** blijft een afzonderlijke expliciete
+handeling. Deze scheiding voorkomt dat een gewijzigd tijdveld op het
+AMOLED-scherm wordt verward met een al opnieuw geplande wekker.
+
+Als de opgeslagen **uiterste** wekdeadline al is verstreken terwijl het
+scherm geen actieve/trillende of slimme tracking-wekker ziet, verschijnt
+een oranje **WEKTIJD VERSTREKEN** waarschuwing, samen met de oorspronkelijke
+geplande tijd. Dat is een **waarschuwing, geen bewijs** dat de gebruiker
+daadwerkelijk gewekt is of dat Android het alarm heeft afgeleverd. Bij
+een actief trillingsalarm blijft altijd de bestaande status **WEKKER
+ACTIEF** gelden en kan het horloge uitsluitend met de echte lader
+worden gestopt.
+
+Deze veranderingen zijn uitsluitend broncode op [PR #5](https://github.com/Zennay/Alarm/pull/5).
+Er is geen APK geïnstalleerd, ondertekend of live gevalideerd.
+Bestaande exacte-head CI, onafhankelijke review, eigenaaracceptatie en
+fysieke Galaxy Watch 7-checks blijven verplicht; gebruik voorlopig
+een onafhankelijke reservewekker.
