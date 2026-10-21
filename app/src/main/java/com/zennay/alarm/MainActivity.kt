@@ -325,9 +325,17 @@ class MainActivity : Activity() {
                 .setNegativeButton("Terug", null)
                 .setPositiveButton("Start test") { _, _ ->
                     val now = System.currentTimeMillis()
+                    // Store a durable one-shot test before removing the
+                    // currently scheduled wake. If preferences fail, do not
+                    // silently destroy the user's existing real alarm.
+                    val testAlarm = AlarmConfig(AlarmMode.FIXED, from, until,
+                        now, now, true)
+                    if (!AlarmStore.save(this, testAlarm)) {
+                        Toast.makeText(this, "Test niet opgeslagen; bestaande wekker behouden.",
+                            Toast.LENGTH_LONG).show()
+                        return@setPositiveButton
+                    }
                     AlarmScheduler.cancel(this)
-                    AlarmStore.save(this, AlarmConfig(AlarmMode.FIXED, from, until,
-                        now, now, true))
                     WakeService.send(this, WakeService.RING)
                     handler.postDelayed({ refresh() }, 500)
                 }.show()
@@ -365,11 +373,11 @@ class MainActivity : Activity() {
                 System.currentTimeMillis(), ZoneId.systemDefault())
             val next = AlarmConfig(selectedMode, from, until,
                 times.earliestMs, times.latestMs, true)
-            AlarmScheduler.schedule(this, next)
-            AlarmStore.save(this, next)
+            AlarmScheduler.armAndSave(this, next)
             refresh()
             Toast.makeText(this, "Wekker ingesteld ✓", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
+            refresh() // An unsuccessful rearm may have disabled an unsafe old state.
             Toast.makeText(this, e.message ?: "Kon wekker niet instellen", Toast.LENGTH_LONG).show()
         }
     }
