@@ -325,7 +325,7 @@ class MainActivity : Activity() {
             .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) else null
         pendingNotice.visibility = if (pending && !ringing && !tracking) View.VISIBLE else View.GONE
         if (pending) pendingNotice.text =
-            "NIET OPGESLAGEN\\nDe bestaande wekker blijft ingesteld. " +
+            "NIET OPGESLAGEN\nDe bestaande wekker blijft ingesteld. " +
             "Tik op ‘Wekker instellen’ om je wijzigingen over te nemen."
         fixedTab.background = shape(if (smart) card else mint, 24)
         smartTab.background = shape(if (smart) mint else card, 24)
@@ -353,7 +353,7 @@ class MainActivity : Activity() {
         status.text = when {
             ringing -> "●  WEKKER ACTIEF"
             tracking -> "●  SLIM WEKVENSTER ACTIEF"
-            overdue -> "⚠  WEKTIJD VERSTREKEN · controleer of je wekker ging\\n" +
+            overdue -> "⚠  WEKTIJD VERSTREKEN · controleer of je wekker ging\n" +
                 plannedAlarmSummary(c)
             c.enabled -> plannedAlarmSummary(c)
             else -> "●  GEEN WEKKER GEPLAND"
