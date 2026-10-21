@@ -380,7 +380,7 @@ class MainActivity : Activity() {
         exactAlarmWarning.visibility = if (permissionMissing) View.VISIBLE else View.GONE
         exactAlarmSettings.visibility = exactAlarmWarning.visibility
         if (permissionMissing) exactAlarmWarning.text =
-            "EXACTE ALARMTOESTEMMING ONTBREEKT\\n" +
+            "EXACTE ALARMTOESTEMMING ONTBREEKT\n" +
             "Een nieuwe wekker kan niet worden gepland; controleer ook je al ingestelde wekker."
         // Preview the proposed NEXT actual instant, never the current saved
         // schedule. This is informational; only an explicit Save arms a wake.
