@@ -53,6 +53,8 @@ class MainActivity : Activity() {
     private lateinit var ringingPane: View
     private lateinit var chargingStatus: TextView
     private lateinit var cancel: TextView
+    private lateinit var trial: TextView
+    private lateinit var trialHint: TextView
     private var from = 7 * 60
     private var until = 7 * 60 + 30
     private var selectedMode = AlarmMode.FIXED
@@ -329,29 +331,72 @@ class MainActivity : Activity() {
         }
         add(root, text("Dit is alleen een korte test van de trilmotor.", 10f, muted))
         gap(root, 8)
-        val trial = pill("Volledige wekker testen (continu)", card, mint)
+        trial = pill("Volledige wekker testen (continu)", card, mint)
         add(root, trial)
+        trialHint = text("", 11f, muted).apply {
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+        }
+        add(root, trialHint)
         trial.setOnClickListener {
+            // A full rehearsal previously replaced the persisted real alarm
+            // and cancelled its Android PendingIntents. This is never a safe
+            // side effect of a mere rehearsal, particularly before bedtime.
             if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            val armed = AlarmStore.read(this)
+            if (armed.enabled) {
+                AlertDialog.Builder(this)
+                    .setTitle("Je geplande wekker blijft behouden")
+                    .setMessage(plannedAlarmSummary(armed) +
+                        "\n\nDe volledige trilproef kan een ingestelde wekker " +
+                        "vervangen. Daarom is de proef geblokkeerd zolang een " +
+                        "wekker gepland is. Gebruik de 1-seconde trilmotortest " +
+                        "hierboven, of annuleer eerst bewust je geplande wekker.")
+                    .setPositiveButton("Begrepen", null)
+                    .show()
+                return@setOnClickListener
+            }
             AlertDialog.Builder(this)
-                .setTitle("Wekker testen?")
-                .setMessage("De wekker trilt zonder geluid totdat je horloge oplaadt. Houd de oplader bij de hand.")
+                .setTitle("Volledige trilproef starten?")
+                .setMessage("Er is geen wekker gepland. De proef trilt " +
+                    "zonder geluid totdat het horloge oplaadt. Houd de oplader " +
+                    "bij de hand. Wil je daarna wakker worden, stel dan " +
+                    "zelf nog een echte wekker in.")
                 .setNegativeButton("Terug", null)
-                .setPositiveButton("Start test") { _, _ ->
+                .setPositiveButton("Start proef") { _, _ ->
+                    // The user may have armed a real alarm while the dialog
+                    // was open. Recheck *before* every durable write/cancel.
+                    if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this) ||
+                        AlarmStore.read(this).enabled) {
+                        Toast.makeText(this,
+                            "Wekker gewijzigd; proef niet gestart.",
+                            Toast.LENGTH_LONG).show()
+                        refresh()
+                        return@setPositiveButton
+                    }
                     val now = System.currentTimeMillis()
-                    // Store a durable one-shot test before removing the
-                    // currently scheduled wake. If preferences fail, do not
-                    // silently destroy the user's existing real alarm.
                     val testAlarm = AlarmConfig(AlarmMode.FIXED, from, until,
                         now, now, true)
                     if (!AlarmStore.save(this, testAlarm)) {
-                        Toast.makeText(this, "Test niet opgeslagen; bestaande wekker behouden.",
+                        Toast.makeText(this, "Proef niet opgeslagen; geen wekker gewijzigd.",
                             Toast.LENGTH_LONG).show()
+                        refresh()
                         return@setPositiveButton
                     }
-                    AlarmScheduler.cancel(this)
-                    WakeService.send(this, WakeService.RING)
-                    handler.postDelayed({ refresh() }, 500)
+                    try {
+                        // There is no previously armed alarm to sacrifice.
+                        // Cleanup removes only orphaned old PendingIntents.
+                        AlarmScheduler.cancel(this)
+                        WakeService.send(this, WakeService.RING)
+                    } catch (failure: Exception) {
+                        // Do not leave a phantom enabled alarm after service
+                        // admission fails. A real scheduled alarm was never
+                        // overwritten because admission was denied above.
+                        AlarmStore.setDisabled(this)
+                        Toast.makeText(this,
+                            "Proef starten mislukt. Geen wekker gepland.",
+                            Toast.LENGTH_LONG).show()
+                    }
+                    refresh()
                 }.show()
         }
     }
@@ -489,6 +534,15 @@ class MainActivity : Activity() {
                 "Opladen gedetecteerd ✓" else "Wachten op oplader…"
         }
         cancel.visibility = if (c.enabled && !ringing && !tracking) View.VISIBLE else View.GONE
+        // Inform the operator *before* opening the confirmation sheet.
+        // Keep the short motor test available without altering saved alarms.
+        trialHint.text = when {
+            ringing || tracking -> "Een actieve wekker mag alleen via opladen stoppen."
+            c.enabled -> "Volledige proef geblokkeerd: ingestelde wekker blijft behouden. " +
+                "Gebruik 'Trilmotor testen (1 sec)'."
+            else -> "Geen wekker gepland · proef trilt door tot opladen."
+        }
+        trial.setTextColor(if (c.enabled) muted else mint)
     }
 
 
