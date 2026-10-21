@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var pendingNotice: TextView
     private lateinit var restoreScheduled: TextView
+    private lateinit var draftPreview: TextView
     private lateinit var fixedTab: TextView
     private lateinit var smartTab: TextView
     private lateinit var timePrimary: TextView
@@ -148,6 +149,13 @@ class MainActivity : Activity() {
             visibility = View.GONE
         }
         add(root, restoreScheduled)
+        gap(root, 7)
+        draftPreview = text("", 12f, muted).apply {
+            background = shape(card, 16)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
+        }
+        add(root, draftPreview)
         restoreScheduled.setOnClickListener {
             // Reset only the unsaved form. Never reschedule, cancel or
             // acknowledge a ringing/tracking alarm from this action.
@@ -342,6 +350,22 @@ class MainActivity : Activity() {
             .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) else null
         pendingNotice.visibility = if (pending && !ringing && !tracking) View.VISIBLE else View.GONE
         restoreScheduled.visibility = pendingNotice.visibility
+        // Preview the proposed NEXT actual instant, never the current saved
+        // schedule. This is informational; only an explicit Save arms a wake.
+        val showPreview = (!c.enabled || pending) && !ringing && !tracking
+        draftPreview.visibility = if (showPreview) View.VISIBLE else View.GONE
+        if (showPreview) {
+            draftPreview.text = try {
+                val proposed = TimePlanner.next(selectedMode, from, until,
+                    System.currentTimeMillis(), ZoneId.systemDefault())
+                val candidate = AlarmConfig(selectedMode, from, until,
+                    proposed.earliestMs, proposed.latestMs, true)
+                "VOORBEELD BIJ OPSLAAN · NOG NIET ACTIEF\n" + plannedAlarmSummary(candidate)
+            } catch (invalid: IllegalArgumentException) {
+                "NOG NIET IN TE STELLEN\n" +
+                    (invalid.message ?: "Kies een geldig wekvenster.")
+            }
+        }
         if (pending) pendingNotice.text =
             "NIET OPGESLAGEN\nDe bestaande wekker blijft ingesteld. " +
             "Stel de nieuwe tijd in of draai je invoerwijzigingen terug."
