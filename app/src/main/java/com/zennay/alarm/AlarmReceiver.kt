@@ -18,15 +18,26 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         val saved = AlarmStore.read(context)
         if (!saved.enabled) return
+        val receivedAt = System.currentTimeMillis()
         when (intent.action) {
             START -> {
-                if (saved.mode == AlarmMode.SMART && System.currentTimeMillis() < saved.latestMs) {
+                // PendingIntent action/request codes are reused after a user
+                // reschedules. An in-flight START from the old alarm must
+                // never awaken the newly armed alarm before its actual start.
+                if (receivedAt < saved.earliestMs) return
+                if (saved.mode == AlarmMode.SMART && receivedAt < saved.latestMs) {
                     WakeService.send(context, WakeService.MONITOR)
                 } else {
                     WakeService.send(context, WakeService.RING)
                 }
             }
-            DEADLINE -> WakeService.send(context, WakeService.RING)
+            DEADLINE -> {
+                // A stale deadline broadcast can outlive the cancelled old
+                // slot. Ring only once the CURRENT schedule's deadline is due.
+                if (receivedAt >= saved.latestMs) {
+                    WakeService.send(context, WakeService.RING)
+                }
+            }
         }
     }
     companion object {
@@ -49,9 +60,22 @@ class BootReceiver : BroadcastReceiver() {
             }
             return
         }
-        // For an alarm not yet ringing, an expired one-shot can be cleared.
+        val nowMs = System.currentTimeMillis()
+        // During an active SMART window, a manual clock correction can move
+        // real time past the deadline before the scheduled RTC broadcast
+        // arrives. Never silently disable an actively tracked wakeup.
+        // After a cold reboot, keep the existing one-shot expiry behaviour:
+        // a stale alarm must not unexpectedly ring hours after boot.
+        val correctedClock = intent.action == Intent.ACTION_TIME_CHANGED ||
+            intent.action == Intent.ACTION_TIMEZONE_CHANGED
+        if (AlarmStore.isTracking(context) && nowMs >= config.latestMs && correctedClock) {
+            WakeService.send(context, WakeService.RING)
+            return
+        }
+        // Expire an overdue not-ringing one-shot only when no tracked
+        // clock-correction deadline requires immediate ringing.
         if (AlarmContinuationPolicy.shouldExpire(
-                System.currentTimeMillis(), config.latestMs, alreadyRinging = false)) {
+                nowMs, config.latestMs, alreadyRinging = false)) {
             AlarmStore.setDisabled(context)
             return
         }
