@@ -76,7 +76,10 @@ class BootReceiver : BroadcastReceiver() {
         // clock-correction deadline requires immediate ringing.
         if (AlarmContinuationPolicy.shouldExpire(
                 nowMs, config.latestMs, alreadyRinging = false)) {
-            AlarmStore.setDisabled(context)
+            // No confirmed ringing/charging receipt exists after an elapsed
+            // deadline. Do not silently label that wake as delivered on the
+            // next Watch screen; retain the original instant for review.
+            AlarmStore.expireUnconfirmed(context)
             return
         }
         if (AlarmScheduler.canSchedule(context)) {
