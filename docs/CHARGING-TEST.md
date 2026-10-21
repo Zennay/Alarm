@@ -180,3 +180,20 @@ Alle nieuwe schermen zijn uitsluitend sourcecode op
 ondertekening, installatie of daadwerkelijke horlogeverificatie gebeurd.
 Bestaande verplichte CI, onafhankelijke PR-review en echte stille
 trillings-, wintertijd- en laadacceptatie blijven onverkort vereist.
+
+## Bescherming tegen per ongeluk annuleren (21 oktober)
+
+**Geplande wekker annuleren** wist niet meer direct bij één onbedoelde
+aanraking op het kleine Watch-scherm. Eerst verschijnt een bevestiging
+met de **daadwerkelijk opgeslagen datum, wektijd en UTC-offset**
+(inclusief de juiste wintertijdinstantie) en twee expliciete keuzes:
+**Wekker behouden** of **Ja, annuleren**.
+
+De bevestiging is aan exact dezelfde opgeslagen `AlarmConfig` gebonden.
+Wanneer een andere instelling intussen werkelijk is opgeslagen, de wekker
+al trilt of de slimme bewegingsbewaking actief is, wordt de oude
+bevestiging genegeerd en de status vernieuwd. Niet-opgeslagen wijzigingen
+uit het tijdformulier kunnen geen andere al geplande wekker annuleren.
+Dit verandert geen hervatgedrag, laderbeleid of wekplanningsalgoritme.
+Het is broncode en geen bewijs dat fysieke Wear OS-dialogen of trilling
+op de Watch 7 al zijn geaccepteerd.
