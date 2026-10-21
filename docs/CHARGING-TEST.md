@@ -197,3 +197,26 @@ uit het tijdformulier kunnen geen andere al geplande wekker annuleren.
 Dit verandert geen hervatgedrag, laderbeleid of wekplanningsalgoritme.
 Het is broncode en geen bewijs dat fysieke Wear OS-dialogen of trilling
 op de Watch 7 al zijn geaccepteerd.
+
+
+## Geplande wekker blijft leidend bij vertraagde Android-meldingen
+
+Bij het wijzigen van een ingestelde wekker gebruikt Android dezelfde
+`PendingIntent`-acties voor het oude en het nieuwe tijdstip. Een melding kan
+intussen al onderweg zijn. De `AlarmReceiver` vergelijkt daarom een
+ontvangen START nu met de **huidige opgeslagen vroegste wektijd** en
+een DEADLINE met de **huidige opgeslagen uiterste wektijd**.
+Een achterhaalde melding vóór de nieuwe planning start **geen vroegtijdige
+bewegingstracking of trilling**. Als de actuele deadline wel verstreken is,
+blijft de echte alarmactie bereikbaar.
+
+Ook een al lopend slim venster blijft beschermd: wanneer de systeemklok
+door een handmatige tijd-/zonecorrectie voorbij de vastgelegde deadline
+verspringt, start het systeem een onmiddellijke wekactie in plaats van de
+nog actieve tracking stil uit te schakelen. Een pas na vele uren herstart
+horloge houdt het bestaande *one-shot verlopen*-gedrag, zodat een oude
+wekker niet willekeurig na een koude start afgaat.
+
+Deze source-only aanpassingen veranderen niets aan de eis dat alleen
+een echt laadcontact een trillende wekker mag stoppen. Onafhankelijke
+review, exacte-commit CI en fysieke Watch 7-acceptatie zijn nog vereist.
