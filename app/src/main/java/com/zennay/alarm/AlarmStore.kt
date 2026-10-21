@@ -48,8 +48,10 @@ object AlarmStore {
     }
     fun isRinging(context: Context) = pref(context).getBoolean("ringing", false)
     fun isTracking(context: Context) = pref(context).getBoolean("tracking", false)
-    fun setDisabled(context: Context) {
+    /** Persist dismissal/cancellation state before claiming an alarm is off.
+     * The Boolean is observed by user-triggered cancellation. A receiver
+     * holding an obsolete PendingIntent also refuses disabled configs. */
+    fun setDisabled(context: Context): Boolean =
         pref(context).edit().putBoolean("enabled", false)
-            .putBoolean("ringing", false).putBoolean("tracking", false).apply()
-    }
+            .putBoolean("ringing", false).putBoolean("tracking", false).commit()
 }
