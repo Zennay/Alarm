@@ -391,9 +391,12 @@ class MainActivity : Activity() {
                         // Do not leave a phantom enabled alarm after service
                         // admission fails. A real scheduled alarm was never
                         // overwritten because admission was denied above.
-                        AlarmStore.setDisabled(this)
-                        Toast.makeText(this,
-                            "Proef starten mislukt. Geen wekker gepland.",
+                        val cleared = AlarmStore.setDisabled(this)
+                        Toast.makeText(this, if (cleared)
+                            "Proef starten mislukt. Geen wekker gepland."
+                        else
+                            "Proef mislukt; tijdelijke alarmstatus kon niet worden " +
+                            "gewist. Controleer het scherm en de opslag.",
                             Toast.LENGTH_LONG).show()
                     }
                     refresh()
