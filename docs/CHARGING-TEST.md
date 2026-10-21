@@ -220,3 +220,38 @@ wekker niet willekeurig na een koude start afgaat.
 Deze source-only aanpassingen veranderen niets aan de eis dat alleen
 een echt laadcontact een trillende wekker mag stoppen. Onafhankelijke
 review, exacte-commit CI en fysieke Watch 7-acceptatie zijn nog vereist.
+
+
+## Veilig opnieuw instellen: een bestaande wekker niet eerst verwijderen
+
+De knop **Wekker instellen** gebruikt nu `AlarmScheduler.armAndSave`.
+Voorheen verwijderde `schedule` eerst de bestaande Android-timers.
+Als het toevoegen van de nieuwe `START` of `DEADLINE` mislukte,
+bleef de oude configuratie zichtbaar terwijl de feitelijke timer
+mogelijk verdwenen was.
+
+De nieuwe programmering vervangt de `START`-PendingIntent rechtstreeks
+via `AlarmManager` en verandert de oude uiterste deadline pas nadat
+de nieuwe start door Android is geaccepteerd. Als de nieuwe timer niet
+volledig wordt geaccepteerd, probeert de app de vorige, nog geldige
+wekker of het resterende slimme eindmoment opnieuw te programmeren.
+Een al verlopen one-shot wordt nooit ongemerkt als toekomstalarm
+aangemerkt. Als geen betrouwbare terugzetting mogelijk is, wordt de
+overgebleven geplande timer opgeruimd en het bewaarde *actief*-vinkje
+uitgeschakeld; de gebruiker krijgt een melding om opnieuw in te stellen.
+
+Pas na het daadwerkelijk programmeren schrijft de app de nieuwe
+configuratie **synchroon en controleerbaar** naar privépreferences.
+Als opslaan mislukt, probeert de app weer de eerder opgeslagen wekker
+te herstellen. Het scherm vernieuwt ook na een fout: een groene oude
+status mag niet als bewijs van een succesvol nieuw alarm blijven staan.
+De handmatige volledig-trillen-proef bewaart eerst duurzaam zijn
+testsituatie voordat een bestaande planning wordt verwijderd; een
+mislukte testopslag laat de echte oude timer intact.
+
+Dit is de productlogica in een **open bron-PR**, niet een bewijs dat de
+Wear OS-firmware alle alarm- en opslagfouten fysiek overleeft.
+Bij afgewezen exacte-alarmrechten, een geforceerde appstop of defecte
+opslag is een reservewekker noodzakelijk. Het alarm stopt nog steeds
+alleen na werkelijk, stabiel waargenomen opladen; deze wijziging maakt
+geen snoozeknop, geluid of alternatieve stopactie mogelijk.
