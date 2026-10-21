@@ -28,8 +28,8 @@ object AlarmStore {
         )
     }
 
-    fun save(context: Context, config: AlarmConfig) {
-        pref(context).edit()
+    fun save(context: Context, config: AlarmConfig): Boolean {
+        return pref(context).edit()
             .putString("mode", config.mode.name)
             .putInt("first", config.firstMinute)
             .putInt("last", config.lastMinute)
@@ -37,7 +37,7 @@ object AlarmStore {
             .putLong("lateMs", config.latestMs)
             .putBoolean("enabled", config.enabled)
             .putBoolean("ringing", false).putBoolean("tracking", false)
-            .apply()
+            .commit() // Success means the one-shot metadata reached durable preferences.
     }
 
     fun setRinging(context: Context, value: Boolean) {
