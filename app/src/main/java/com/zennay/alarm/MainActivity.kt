@@ -244,11 +244,34 @@ class MainActivity : Activity() {
         cancel = pill("Geplande wekker annuleren", card, warn)
         add(settingsColumn, cancel)
         cancel.setOnClickListener {
-            if (!AlarmStore.isRinging(this) && !AlarmStore.isTracking(this)) {
-                AlarmScheduler.cancel(this)
-                AlarmStore.setDisabled(this)
-                refresh()
-            }
+            // A tiny Watch display makes one-tap cancellation hazardous.
+            // Show the exact persisted schedule and require a deliberate second
+            // tap; never use unsaved edits as the identity of the armed alarm.
+            if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            val armed = AlarmStore.read(this)
+            if (!armed.enabled) return@setOnClickListener
+            AlertDialog.Builder(this)
+                .setTitle("Geplande wekker annuleren?")
+                .setMessage(plannedAlarmSummary(armed) +
+                    "\n\nDeze wekker gaat dan niet meer af. " +
+                    "Wijzigingen in het formulier zijn nog niet opgeslagen.")
+                .setNegativeButton("Wekker behouden", null)
+                .setPositiveButton("Ja, annuleren") { _, _ ->
+                    val current = AlarmStore.read(this)
+                    // A pending dialog must not cancel a different, newer
+                    // schedule or dismiss a tracking/ringing alarm.
+                    if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this) ||
+                        !current.enabled || current != armed) {
+                        Toast.makeText(this, "Wekker gewijzigd; annuleren afgebroken.",
+                            Toast.LENGTH_SHORT).show()
+                    } else {
+                        AlarmScheduler.cancel(this)
+                        AlarmStore.setDisabled(this)
+                        Toast.makeText(this, "Geplande wekker geannuleerd",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                    refresh()
+                }.show()
         }
         gap(settingsColumn, 18)
 
