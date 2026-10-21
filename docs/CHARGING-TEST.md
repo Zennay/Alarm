@@ -93,3 +93,27 @@ persistente alarmstatus of de productie-/APK-releaseprocedure.
 De correctie is niet op een Galaxy Watch geverifieerd; gebruik
 een reservewekker totdat de echte Watch-acceptatie en bestaande
 verplichte CI, review en eigenaaracceptatie zijn afgerond.
+
+
+## Tijdswissel: geplande echte tijdinstanten zichtbaar op het horloge
+
+Wanneer de app een wekker als **gepland** toont, staat naast dag en lokaal
+tijdstip voortaan ook de werkelijke UTC-offset, bijvoorbeeld
+`zo 25 okt 02:30 +02:00` of `zo 25 okt 02:30 +01:00`. Dat zijn op de
+Nederlandse wintertijddag **twee verschillende tijdinstanten**. Bij een
+**slim wekvenster** staan zowel het begin als de harde uiterste wektijd met
+hun afzonderlijke UTC-offset op twee regels, zodat een venster over de
+tijdswissel niet visueel de verkeerde eindtijd suggereert.
+
+Dit is uitsluitend een wijziging in het statusoverzicht van
+`MainActivity` op de bestaande [Alarm PR #5](https://github.com/Zennay/Alarm/pull/5).
+De geplande epoch-milliseconden, `AlarmManager`, smart motion gating,
+Wear OS trillingen, oplader-als-enige-stopactie en release/signing worden
+**niet** gewijzigd. Zodra de wekker actief is, blijft het bestaande
+'WEKKER ACTIEF' scherm bepalend.
+
+**Niet afleiden uit een geslaagde build:** de fysieke Galaxy Watch 7,
+de tweevoudige 02:30, haptische doorloop en werkelijke laadstatus moeten
+apart met een geautoriseerde eigenaar worden gecontroleerd. Tot die tijd
+een onafhankelijke reservewekker gebruiken. Geen APK-uitgave of toestelupdate
+door deze bron-PR.
