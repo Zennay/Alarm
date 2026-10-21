@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private lateinit var heroTime: TextView
     private lateinit var heroCaption: TextView
     private lateinit var status: TextView
+    private lateinit var pendingNotice: TextView
     private lateinit var fixedTab: TextView
     private lateinit var smartTab: TextView
     private lateinit var timePrimary: TextView
@@ -134,7 +135,14 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         add(root, status)
-        gap(root, 23)
+        gap(root, 8)
+        pendingNotice = text("", 12f, warn, true).apply {
+            background = shape(card, 16, warn)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
+        }
+        add(root, pendingNotice)
+        gap(root, 15)
 
         settings = column().also { add(root, it) }
         val settingsColumn = settings as LinearLayout
@@ -307,6 +315,16 @@ class MainActivity : Activity() {
         val ringing = AlarmStore.isRinging(this)
         val tracking = AlarmStore.isTracking(this)
         val smart = selectedMode == AlarmMode.SMART
+        // The form is an editable draft. It does NOT update an armed alarm until Save.
+        // Keep the main display bound to persisted schedule data, not unsaved inputs.
+        val pending = c.enabled && (selectedMode != c.mode ||
+            from != c.firstMinute || until != c.lastMinute)
+        val scheduledStart = if (c.enabled) Instant.ofEpochMilli(c.earliestMs)
+            .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) else null
+        pendingNotice.visibility = if (pending && !ringing && !tracking) View.VISIBLE else View.GONE
+        if (pending) pendingNotice.text =
+            "NIET OPGESLAGEN\\nDe bestaande wekker blijft ingesteld. " +
+            "Tik op ‘Wekker instellen’ om je wijzigingen over te nemen."
         fixedTab.background = shape(if (smart) card else mint, 24)
         smartTab.background = shape(if (smart) mint else card, 24)
         fixedTab.setTextColor(if (smart) muted else ink)
@@ -314,11 +332,18 @@ class MainActivity : Activity() {
         timePrimary.text = formatMinute(from)
         timeSecondary.text = formatMinute(until)
         windowGroup.visibility = if (smart) View.VISIBLE else View.GONE
-        heroTime.text = if (ringing) "OPSTAAN" else formatMinute(from)
+        heroTime.text = when {
+            ringing -> "OPSTAAN"
+            scheduledStart != null -> scheduledStart
+            else -> formatMinute(from)
+        }
         heroTime.textSize = if (ringing) 32f else 49f
         heroCaption.text = when {
             ringing -> "Stoppen kan alleen op de oplader"
             tracking -> "Zoeken naar het juiste wekmoment"
+            pending -> "Geplande tijd · invoer nog niet opgeslagen"
+            c.enabled && c.mode == AlarmMode.SMART -> "Gepland slim wekvenster vanaf"
+            c.enabled -> "Geplande vaste wektijd"
             smart -> "Wakker worden binnen je tijdvak"
             else -> "Alleen trillen, geen snooze"
         }
