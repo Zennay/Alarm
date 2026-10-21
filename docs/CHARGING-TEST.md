@@ -276,3 +276,18 @@ wekvenster volgt. Een actief trilalarm stoppen blijft uitsluitend
 mogelijk na echt, stabiel waargenomen opladen. Zonder onafhankelijke
 Watch 7-acceptatie of exact-head automatische build is dit uitsluitend
 een broncodewijziging en geen nieuwe hardwarebetrouwbaarheidsclaim.
+
+
+## Volledige trilproef zonder geplande wekker te overschrijven
+
+De **volledige proef** is een echte aanhoudende, stille trilling totdat de watch daadwerkelijk oplaadt. Een belangrijke bedieningsfout is hersteld: de eerdere proeffunctie verving de **reeds opgeslagen ochtendwekker** door een proefalarm op het huidige moment en annuleerde daarna Androids bestaande PendingIntents. Een gebruiker kon zo onbedoeld de volgende echte wekactie kwijtraken.
+
+De app **weigert nu de volledige proef zolang een geplande wekker ingeschakeld is**, ook als het oorspronkelijke tijdstip al verstreken is. Het scherm zegt dit vooraf; tikken toont de exact bewaarde wektijd en de reden. De afzonderlijke **Trilmotor testen (1 sec)** blijft beschikbaar zonder wijzigingen aan planning of opslag. Wil de gebruiker bewust een volledige proef doen, dan moet de geplande wekker eerst via de bestaande bevestigde annuleeractie worden geannuleerd, en na de proef moet een nieuwe ochtendwekker expliciet worden ingesteld.
+
+De volledige proef hercontroleert **na de bevestigingsdialoog** dat er nog altijd geen geplande, actieve of slimme trackingwekker is. Alleen als dit waar is, wordt een eenmalige tijdelijke proef als actieve ring opgeslagen. Bij opslagfout stopt de proef zonder de echte wekker te wijzigen; bij service-startfout probeert de app de tijdelijke toestand weer uit te schakelen en meldt expliciet dat geen echte wekker gepland is. Er is **geen** automatische restore, geen verborgen vervangen of bewaren van een eerdere real-world alarmplanning.
+
+### Opladen bevestigt alleen een duurzaam opgeslagen stopactie
+
+In `WakeService` werd na laadbevestiging de trilmotor en herstelmelding al gestopt vóór `AlarmStore.setDisabled()` was gecommit. Daardoor kon een opslagfout de gebruiker een gestopt alarm laten zien terwijl de opgeslagen status nog **actief** was. Nu is een echt bevestigd laad-/volsignaal **voorwaarde**, maar wordt het alarm pas als definitief gestopt beschouwd nadat de uitgeschakelde status duurzaam is gecommit. Mislukt dat, dan blijven de actieve ring en herstelplanning intact en probeert de periodieke laadcontrole opnieuw. Wanneer het committen gelukt is, kunnen mislukte Android PendingIntent-cleanups de persistente uitschakeling niet meer terugdraaien; de receiver verwerpt callbacks voor een uitgeschakelde wekker.
+
+**Grenzen:** dit zijn broncorrecties op bestaande [Wear OS product-PR #5](https://github.com/Zennay/Alarm/pull/5), commits [46bda78](https://github.com/Zennay/Alarm/commit/46bda78895563e8866e59d14e61cd05004c262c3) en [17ef065](https://github.com/Zennay/Alarm/commit/17ef0652a66698a5106fb7b04a6ca2246e2b090f). Geen QA-suite of regressie uitgevoerd, APK getekend/gepubliceerd, Samsung Watch gewijzigd of release-gate omzeild. Verplichte exacte-head Android CI, onafhankelijke code-review en echte Galaxy Watch 7-acceptatie inclusief ladersignaal blijven nodig. Tot die tijd een onafhankelijke reservewekker gebruiken.
