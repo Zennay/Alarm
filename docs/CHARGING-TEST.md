@@ -310,6 +310,8 @@ is armed. This closes the near-minute race where a very-soon START could arrive
 while AlarmReceiver still read the previous saved times and discard the new
 alarm. No preference write follows the final START scheduling call, so a
 START receiver can record ringing/tracking without a later write erasing it.
+Rescheduling is refused while the current alarm is already ringing or the smart
+wake window is tracking; stop the active alarm before changing its schedule.
 
 If the OS rejects scheduling, or durable preference writes fail, the app restores
 the prior config and its ringing, tracking and expiredUnconfirmed flags before
