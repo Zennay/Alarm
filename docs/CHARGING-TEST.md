@@ -302,3 +302,21 @@ De bestaande `BootReceiver` schakelt een dergelijke verlopen eenmalige planning 
 Wanneer de gebruiker **zelf een nieuwe planning opslaat**, of een alarm expliciet annuleert, wordt die eerdere waarschuwing gewist. Ook opladerbevestiging ruimt haar op na de succesvolle persistente stopactie. Een mislukte opslag van de vervallen toestand laat de oude `enabled` status intact; de bestaande waarschuwing voor verlopen maar nog ingeschakelde deadlines blijft dan zichtbaar. Het alarmschema wordt niet automatisch opnieuw aangemaakt of stilzwijgend gecorrigeerd.
 
 Deze functionaliteit is volledig lokaal, verandert geen toestemmingen, sensordata, online service, release/keystore of echte hardwareacties. Code op [PR #5](https://github.com/Zennay/Alarm/pull/5): [91ba70d](https://github.com/Zennay/Alarm/commit/91ba70dfb38739bac0392094afe756309c3aec08), [93eac28](https://github.com/Zennay/Alarm/commit/93eac28f9ea3a848a68732ff6ad3c0962cf5c46d), [c6dd609](https://github.com/Zennay/Alarm/commit/c6dd609f57bd8819aed83cd1162c315da287156f). Het blijft **broncode, niet main of een uitgebrachte APK**. Alleen de bestaande automatische exacte-head checks, onafhankelijke eigenaarreview en echte Watch-acceptatie kunnen dit vrijgeven; handmatige QA-/regressiesuites zijn niet gestart.
+
+## Durable schedule persistence and rollback
+
+A new one-shot is now persisted before its Android PendingIntent start/deadline
+is armed. This closes the near-minute race where a very-soon START could arrive
+while AlarmReceiver still read the previous saved times and discard the new
+alarm. The completion commit does not clear a ringing/tracking state that a
+START receiver may already have written.
+
+If the OS rejects scheduling, or durable preference writes fail, the app restores
+the prior config and its ringing, tracking and expiredUnconfirmed flags before
+re-arming the prior schedule. If restoration itself fails, stale START and
+DEADLINE intents are removed; an already-ringing alarm keeps its independent
+recovery watchdog. An expired one-shot is not silently described as restored.
+
+This is source behavior only. The branch still requires its normal exact-head CI,
+independent review, integration of its parent alarm feature, and real Wear OS
+acceptance; no physical-device success is implied.
