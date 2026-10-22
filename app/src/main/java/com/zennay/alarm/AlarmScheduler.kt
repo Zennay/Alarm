@@ -109,9 +109,12 @@ object AlarmScheduler {
         require(config.enabled && config.earliestMs > System.currentTimeMillis())
         check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
         val previous = AlarmStore.snapshot(c)
+        check(!previous.ringing && !previous.tracking) {
+            "Stop de actieve wekker voordat je de planning wijzigt."
+        }
 
         // Commit the schedule before installing its PendingIntents. Otherwise
-        // a near-minute START could fire while AlarmReceiver still sees the
+        // a near-minute START could arrive while AlarmReceiver still sees the
         // old saved times and incorrectly discard or misclassify the alarm.
         if (!AlarmStore.savePending(c, config)) {
             val restored = restorePrevious(c, previous)
@@ -123,10 +126,9 @@ object AlarmScheduler {
         }
 
         try {
+            // START is programmed last by programFuture(); no post-start state
+            // write can overwrite a real wake event recorded by the receiver.
             programFuture(c, config)
-            if (!AlarmStore.markScheduled(c)) {
-                throw IllegalStateException("De bevestiging van de wekker kon niet duurzaam worden opgeslagen.")
-            }
         } catch (failure: Exception) {
             // Restore the old durable state before re-arming the old OS alarm.
             val restored = restorePrevious(c, previous)
