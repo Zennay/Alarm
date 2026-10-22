@@ -23,15 +23,13 @@ object AlarmScheduler {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    /** Replace the old START without cancelling it first; same PendingIntent
-     * identity makes Android replace that one-shot atomically if accepted.
-     * Keep the former deadline until the new start has been accepted. */
+    /**
+     * Configure the hard deadline first and arm START last. A very-near START
+     * must never fire while its new deadline is still being configured; if the
+     * START request is rejected, the caller restores the previous schedule.
+     */
     private fun programFuture(c: Context, config: AlarmConfig) {
         val am = alarmManager(c)
-        am.setAlarmClock(
-            AlarmManager.AlarmClockInfo(config.earliestMs, showIntent(c)),
-            intent(c, AlarmReceiver.START, 101)
-        )
         if (config.mode == AlarmMode.SMART) {
             am.setExactAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP, config.latestMs,
@@ -40,6 +38,10 @@ object AlarmScheduler {
         } else {
             am.cancel(intent(c, AlarmReceiver.DEADLINE, 102))
         }
+        am.setAlarmClock(
+            AlarmManager.AlarmClockInfo(config.earliestMs, showIntent(c)),
+            intent(c, AlarmReceiver.START, 101)
+        )
     }
 
     /** Reconstitute a persisted, still-upcoming alarm after a partial failure.
