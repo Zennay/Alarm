@@ -308,8 +308,8 @@ Deze functionaliteit is volledig lokaal, verandert geen toestemmingen, sensordat
 A new one-shot is now persisted before its Android PendingIntent start/deadline
 is armed. This closes the near-minute race where a very-soon START could arrive
 while AlarmReceiver still read the previous saved times and discard the new
-alarm. The completion commit does not clear a ringing/tracking state that a
-START receiver may already have written.
+alarm. No preference write follows the final START scheduling call, so a
+START receiver can record ringing/tracking without a later write erasing it.
 
 If the OS rejects scheduling, or durable preference writes fail, the app restores
 the prior config and its ringing, tracking and expiredUnconfirmed flags before
