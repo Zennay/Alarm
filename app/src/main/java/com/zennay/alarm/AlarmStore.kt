@@ -80,27 +80,6 @@ object AlarmStore {
             .putBoolean("expiredUnconfirmed", false)
             .commit()
 
-    /**
-     * Commit completion only after the OS accepted the requested schedule.
-     * savePending() already starts from an inactive state for ordinary setup.
-     * Never write ringing/tracking here: a very-near START receiver may have
-     * legitimately set either flag after the schedule was persisted.
-     */
-    fun markScheduled(context: Context): Boolean =
-        pref(context).edit().putBoolean("expiredUnconfirmed", false).commit()
-
-    fun save(context: Context, config: AlarmConfig): Boolean {
-        return pref(context).edit()
-            .putString("mode", config.mode.name)
-            .putInt("first", config.firstMinute)
-            .putInt("last", config.lastMinute)
-            .putLong("earlyMs", config.earliestMs)
-            .putLong("lateMs", config.latestMs)
-            .putBoolean("enabled", config.enabled)
-            .putBoolean("ringing", false).putBoolean("tracking", false)
-            .putBoolean("expiredUnconfirmed", false)
-            .commit() // Success means the one-shot metadata reached durable preferences.
-    }
 
     fun setRinging(context: Context, value: Boolean) {
         pref(context).edit().putBoolean("ringing", value).putBoolean("tracking", !value).apply()
