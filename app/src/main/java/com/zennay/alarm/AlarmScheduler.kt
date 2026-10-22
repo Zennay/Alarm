@@ -45,23 +45,70 @@ object AlarmScheduler {
     /** Reconstitute a persisted, still-upcoming alarm after a partial failure.
      * An already-started smart window keeps its remaining hard deadline;
      * an expired one-shot must not spontaneously ring after recovery. */
-    private fun restorePrevious(c: Context, previous: AlarmConfig): Boolean {
-        if (!previous.enabled || !canSchedule(c)) return false
+    private fun cancelStartAndDeadline(c: Context) {
+        val am = alarmManager(c)
+        am.cancel(intent(c, AlarmReceiver.START, 101))
+        am.cancel(intent(c, AlarmReceiver.DEADLINE, 102))
+    }
+
+    /** A failed new schedule must not leave its PendingIntents armed. */
+    private fun failSafeAfterRestore(c: Context, previous: AlarmStoreSnapshot) {
+        cancelStartAndDeadline(c)
+        if (!previous.ringing && !previous.tracking) {
+            val now = System.currentTimeMillis()
+            if (previous.config.enabled && previous.config.latestMs <= now) {
+                AlarmStore.expireUnconfirmed(c)
+            } else {
+                AlarmStore.setDisabled(c)
+            }
+        }
+        // If a ring is already active, preserve its service and recovery
+        // watchdog; only the attempted replacement schedule is removed.
+    }
+
+    /** Restore durable config first, then restore only the matching OS alarms. */
+    private fun restorePrevious(c: Context, previous: AlarmStoreSnapshot): Boolean {
+        if (!AlarmStore.restore(c, previous)) return false
+        val config = previous.config
+        if (!config.enabled || previous.ringing) {
+            cancelStartAndDeadline(c)
+            return true
+        }
         val now = System.currentTimeMillis()
         return try {
             when {
-                previous.earliestMs > now -> programFuture(c, previous)
-                previous.mode == AlarmMode.SMART && previous.latestMs > now -> {
-                    val am = alarmManager(c)
-                    am.cancel(intent(c, AlarmReceiver.START, 101))
-                    restoreDeadline(c, previous.latestMs)
+                config.earliestMs > now -> programFuture(c, config)
+                config.mode == AlarmMode.SMART && config.latestMs > now -> {
+                    alarmManager(c).cancel(intent(c, AlarmReceiver.START, 101))
+                    restoreDeadline(c, config.latestMs)
                 }
-                else -> return false
+                else -> {
+                    cancelStartAndDeadline(c)
+                    return false
+                }
             }
             true
         } catch (failure: Exception) {
             Log.e("AlarmScheduler", "Previous alarm could not be restored", failure)
             false
+        }
+    }
+
+    /** Arm an exact alarm without first destroying the previous pending alarm. */
+    fun schedule(c: Context, config: AlarmConfig) {
+        require(config.enabled && config.earliestMs > System.currentTimeMillis())
+        check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
+        val previous = AlarmStore.snapshot(c)
+        try {
+            programFuture(c, config)
+        } catch (failure: Exception) {
+            val restored = restorePrevious(c, previous)
+            if (!restored) failSafeAfterRestore(c, previous)
+            throw IllegalStateException(
+                if (restored) "Nieuwe planning mislukt; vorige status is hersteld."
+                else "Wekker instellen mislukt; controleer en stel je wekker opnieuw in.",
+                failure
+            )
         }
     }
 
@@ -100,22 +147,35 @@ object AlarmScheduler {
     /** Persist the new alarm before claiming success in the watch UI.
      * On a storage failure, re-arm the previously saved schedule. */
     fun armAndSave(c: Context, config: AlarmConfig) {
-        val previous = AlarmStore.read(c)
-        schedule(c, config)
-        if (!AlarmStore.save(c, config)) {
-            if (!restorePrevious(c, previous)) {
-                if (!AlarmStore.isRinging(c) && !AlarmStore.isTracking(c)) {
-                    val am = alarmManager(c)
-                    am.cancel(intent(c, AlarmReceiver.START, 101))
-                    am.cancel(intent(c, AlarmReceiver.DEADLINE, 102))
-                    AlarmStore.setDisabled(c)
-                }
-                throw IllegalStateException(
-                    "Wekker niet veilig opgeslagen; stel hem opnieuw in."
-                )
-            }
+        require(config.enabled && config.earliestMs > System.currentTimeMillis())
+        check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
+        val previous = AlarmStore.snapshot(c)
+
+        // Commit the schedule before installing its PendingIntents. Otherwise
+        // a near-minute START could fire while AlarmReceiver still sees the
+        // old saved times and incorrectly discard or misclassify the alarm.
+        if (!AlarmStore.savePending(c, config)) {
+            val restored = restorePrevious(c, previous)
+            if (!restored) failSafeAfterRestore(c, previous)
             throw IllegalStateException(
-                "Nieuwe wekker niet opgeslagen; vorige planning hersteld."
+                if (restored) "Wekker niet veilig opgeslagen; vorige status hersteld."
+                else "Wekker niet veilig opgeslagen; controleer en stel hem opnieuw in."
+            )
+        }
+
+        try {
+            programFuture(c, config)
+            if (!AlarmStore.markScheduled(c)) {
+                throw IllegalStateException("De bevestiging van de wekker kon niet duurzaam worden opgeslagen.")
+            }
+        } catch (failure: Exception) {
+            // Restore the old durable state before re-arming the old OS alarm.
+            val restored = restorePrevious(c, previous)
+            if (!restored) failSafeAfterRestore(c, previous)
+            throw IllegalStateException(
+                if (restored) "Nieuwe planning mislukt; vorige status is hersteld."
+                else "Wekker instellen mislukt; controleer en stel je wekker opnieuw in.",
+                failure
             )
         }
     }
