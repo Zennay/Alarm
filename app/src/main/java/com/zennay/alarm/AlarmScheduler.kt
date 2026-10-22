@@ -95,54 +95,11 @@ object AlarmScheduler {
     }
 
     /** Arm an exact alarm without first destroying the previous pending alarm. */
-    fun schedule(c: Context, config: AlarmConfig) {
-        require(config.enabled && config.earliestMs > System.currentTimeMillis())
-        check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
-        val previous = AlarmStore.snapshot(c)
-        try {
-            programFuture(c, config)
-        } catch (failure: Exception) {
-            val restored = restorePrevious(c, previous)
-            if (!restored) failSafeAfterRestore(c, previous)
-            throw IllegalStateException(
-                if (restored) "Nieuwe planning mislukt; vorige status is hersteld."
-                else "Wekker instellen mislukt; controleer en stel je wekker opnieuw in.",
-                failure
-            )
-        }
-    }
-
-    /** Arm an exact alarm without first destroying the previous pending alarm.
-     *
-     * The user-visible persisted config is replaced only by armAndSave().
-     * If Android accepts START but rejects DEADLINE, explicitly try to
-     * restore the previous pending alarm rather than silently losing it.
+    /**
+     * Every public schedule request follows the same durable commit/rollback
+     * contract. Keep the raw AlarmManager programming primitive private.
      */
-    fun schedule(c: Context, config: AlarmConfig) {
-        require(config.enabled && config.earliestMs > System.currentTimeMillis())
-        check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
-        val previous = AlarmStore.read(c)
-        try {
-            programFuture(c, config)
-        } catch (failure: Exception) {
-            if (!restorePrevious(c, previous)) {
-                // Do not leave the old 'enabled' label displayed when neither
-                // prior nor new scheduling is known to be safely armed.
-                if (!AlarmStore.isRinging(c) && !AlarmStore.isTracking(c)) {
-                    val am = alarmManager(c)
-                    am.cancel(intent(c, AlarmReceiver.START, 101))
-                    am.cancel(intent(c, AlarmReceiver.DEADLINE, 102))
-                    AlarmStore.setDisabled(c)
-                }
-                throw IllegalStateException(
-                    "Wekker instellen mislukt; controleer en stel je wekker opnieuw in."
-                )
-            }
-            throw IllegalStateException(
-                "Nieuwe planning mislukt; vorige wekker is opnieuw ingesteld."
-            )
-        }
-    }
+    fun schedule(c: Context, config: AlarmConfig) = armAndSave(c, config)
 
     /** Persist the new alarm before claiming success in the watch UI.
      * On a storage failure, re-arm the previously saved schedule. */
