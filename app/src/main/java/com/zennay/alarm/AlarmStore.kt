@@ -80,13 +80,19 @@ object AlarmStore {
             .putBoolean("expiredUnconfirmed", false)
             .commit()
 
-    /** Commit completion only after the OS accepted the requested schedule. */
-    fun markScheduled(context: Context): Boolean =
-        pref(context).edit()
-            .putBoolean("ringing", false)
-            .putBoolean("tracking", false)
-            .putBoolean("expiredUnconfirmed", false)
-            .commit()
+    /**
+     * Commit completion only after the OS accepted the requested schedule.
+     * Do not clear a ring/tracking state that a very-near START receiver may
+     * already have written between programFuture() and this commit.
+     */
+    fun markScheduled(context: Context): Boolean {
+        val p = pref(context)
+        val edit = p.edit().putBoolean("expiredUnconfirmed", false)
+        if (!p.getBoolean("ringing", false) && !p.getBoolean("tracking", false)) {
+            edit.putBoolean("ringing", false).putBoolean("tracking", false)
+        }
+        return edit.commit()
+    }
 
     fun save(context: Context, config: AlarmConfig): Boolean {
         return pref(context).edit()
