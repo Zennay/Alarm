@@ -32,7 +32,7 @@ Indien `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: deze preview gebruikt een door de G
 
 ## Herstel na service-onderbreking
 
-Versie 0.3.3 bewaart een actief alarm ook voorbij de oorspronkelijke minuut en registreert een herstellende `AlarmManager`-melding zolang de wekker actief is. Bij normale werking ververst hij periodiek de trilreeks. De app bevat geen alarm-audiospeler en gebruikt expliciet stille notificatiekanalen. Het herstel is **best-effort**: Wear OS mag processen nog steeds onderbreken en de exacte timing van wakeups uitstellen; hardwaretests blijven verplicht.
+Versie 0.3.3 bewaart een actief alarm ook voorbij de oorspronkelijke minuut en registreert een herstellende `AlarmManager`-melding zolang de wekker actief is. Bij normale werking ververst hij periodiek de trilreeks. Als Android alleen de service beëindigt terwijl de opgeslagen ringstatus actief blijft, annuleert `onDestroy()` de herhalende trilgolf niet meer expliciet; de herstelmelding start de service opnieuw en de trilreeks wordt opnieuw geactiveerd. Een volledige procesbeëindiging kan de haptiek nog steeds stoppen. Het herstel is daarom **best-effort**: Wear OS mag processen onderbreken en de exacte timing van wakeups uitstellen; hardwaretests blijven verplicht. De app bevat geen alarm-audiospeler en gebruikt expliciet stille notificatiekanalen.
 
 ## Acceptatie
 
