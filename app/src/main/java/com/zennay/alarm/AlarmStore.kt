@@ -11,6 +11,14 @@ data class AlarmConfig(
     val enabled: Boolean
 )
 
+/** Exact persisted state needed to roll back a partially armed alarm. */
+data class AlarmStoreSnapshot(
+    val config: AlarmConfig,
+    val ringing: Boolean,
+    val tracking: Boolean,
+    val expiredUnconfirmed: Boolean
+)
+
 /** All state is local to the watch. One scheduled alarm, one shot. */
 object AlarmStore {
     private const val PREF = "alarm"
@@ -28,7 +36,40 @@ object AlarmStore {
         )
     }
 
-    fun save(context: Context, config: AlarmConfig) {
+    fun snapshot(context: Context): AlarmStoreSnapshot {
+        val p = pref(context)
+        return AlarmStoreSnapshot(
+            config = read(context),
+            ringing = p.getBoolean("ringing", false),
+            tracking = p.getBoolean("tracking", false),
+            expiredUnconfirmed = p.getBoolean("expiredUnconfirmed", false)
+        )
+    }
+
+    /**
+     * Restore the exact prior durable state after a scheduling or persistence
+     * failure. Unlike save(), this must not erase a live ring/tracking state.
+     */
+    fun restore(context: Context, snapshot: AlarmStoreSnapshot): Boolean {
+        val config = snapshot.config
+        return pref(context).edit()
+            .putString("mode", config.mode.name)
+            .putInt("first", config.firstMinute)
+            .putInt("last", config.lastMinute)
+            .putLong("earlyMs", config.earliestMs)
+            .putLong("lateMs", config.latestMs)
+            .putBoolean("enabled", config.enabled)
+            .putBoolean("ringing", snapshot.ringing)
+            .putBoolean("tracking", snapshot.tracking)
+            .putBoolean("expiredUnconfirmed", snapshot.expiredUnconfirmed)
+            .commit()
+    }
+
+    /**
+     * Persist the new schedule before its OS PendingIntents can fire. Keep
+     * current ring/tracking flags intact until AlarmManager accepts the plan.
+     */
+    fun savePending(context: Context, config: AlarmConfig): Boolean =
         pref(context).edit()
             .putString("mode", config.mode.name)
             .putInt("first", config.firstMinute)
@@ -36,20 +77,41 @@ object AlarmStore {
             .putLong("earlyMs", config.earliestMs)
             .putLong("lateMs", config.latestMs)
             .putBoolean("enabled", config.enabled)
-            .putBoolean("ringing", false).putBoolean("tracking", false)
-            .apply()
-    }
+            .putBoolean("expiredUnconfirmed", false)
+            .commit()
 
-    fun setRinging(context: Context, value: Boolean) {
-        pref(context).edit().putBoolean("ringing", value).putBoolean("tracking", !value).apply()
-    }
-    fun setTracking(context: Context) {
-        pref(context).edit().putBoolean("tracking", true).putBoolean("ringing", false).apply()
-    }
+
+    /**
+     * These flags control service recovery after Android lifecycle interruption.
+     * Persist synchronously so a newly ringing/tracking alarm is not only an
+     * in-memory state when the service schedules its recovery path.
+     */
+    fun setRinging(context: Context, value: Boolean): Boolean =
+        pref(context).edit().putBoolean("ringing", value).putBoolean("tracking", !value).commit()
+
+    fun setTracking(context: Context): Boolean =
+        pref(context).edit().putBoolean("tracking", true).putBoolean("ringing", false).commit()
     fun isRinging(context: Context) = pref(context).getBoolean("ringing", false)
     fun isTracking(context: Context) = pref(context).getBoolean("tracking", false)
-    fun setDisabled(context: Context) {
+    /**
+     * An elapsed one-shot found while no wake service is running cannot be
+     * proven delivered after a cold reboot/clock correction. Preserve its
+     * original scheduled instant for the user's next glance at the watch.
+     * A new real alarm or explicit cancellation clears the warning.
+     */
+    fun expireUnconfirmed(context: Context): Boolean =
         pref(context).edit().putBoolean("enabled", false)
-            .putBoolean("ringing", false).putBoolean("tracking", false).apply()
-    }
+            .putBoolean("ringing", false).putBoolean("tracking", false)
+            .putBoolean("expiredUnconfirmed", true).commit()
+
+    fun hasUnconfirmedExpiry(context: Context): Boolean =
+        pref(context).getBoolean("expiredUnconfirmed", false)
+
+    /** Persist dismissal/cancellation state before claiming an alarm is off.
+     * The Boolean is observed by user-triggered cancellation. A receiver
+     * holding an obsolete PendingIntent also refuses disabled configs. */
+    fun setDisabled(context: Context): Boolean =
+        pref(context).edit().putBoolean("enabled", false)
+            .putBoolean("ringing", false).putBoolean("tracking", false)
+            .putBoolean("expiredUnconfirmed", false).commit()
 }

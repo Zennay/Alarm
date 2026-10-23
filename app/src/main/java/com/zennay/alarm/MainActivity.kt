@@ -39,6 +39,11 @@ class MainActivity : Activity() {
     private lateinit var heroTime: TextView
     private lateinit var heroCaption: TextView
     private lateinit var status: TextView
+    private lateinit var pendingNotice: TextView
+    private lateinit var restoreScheduled: TextView
+    private lateinit var draftPreview: TextView
+    private lateinit var exactAlarmWarning: TextView
+    private lateinit var exactAlarmSettings: TextView
     private lateinit var fixedTab: TextView
     private lateinit var smartTab: TextView
     private lateinit var timePrimary: TextView
@@ -48,6 +53,8 @@ class MainActivity : Activity() {
     private lateinit var ringingPane: View
     private lateinit var chargingStatus: TextView
     private lateinit var cancel: TextView
+    private lateinit var trial: TextView
+    private lateinit var trialHint: TextView
     private var from = 7 * 60
     private var until = 7 * 60 + 30
     private var selectedMode = AlarmMode.FIXED
@@ -134,7 +141,49 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         add(root, status)
-        gap(root, 23)
+        gap(root, 8)
+        pendingNotice = text("", 12f, warn, true).apply {
+            background = shape(card, 16, warn)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
+        }
+        add(root, pendingNotice)
+        gap(root, 7)
+        restoreScheduled = pill("Wijzigingen terugdraaien", card, warn).apply {
+            visibility = View.GONE
+        }
+        add(root, restoreScheduled)
+        gap(root, 7)
+        draftPreview = text("", 12f, muted).apply {
+            background = shape(card, 16)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
+        }
+        add(root, draftPreview)
+        gap(root, 7)
+        exactAlarmWarning = text("", 12f, warn, true).apply {
+            background = shape(card, 16, warn)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
+        }
+        add(root, exactAlarmWarning)
+        exactAlarmSettings = pill("Open alarmtoestemming", card, warn).apply {
+            visibility = View.GONE
+        }
+        add(root, exactAlarmSettings)
+        exactAlarmSettings.setOnClickListener { requestExactAlarmAccess() }
+        restoreScheduled.setOnClickListener {
+            // Reset only the unsaved form. Never reschedule, cancel or
+            // acknowledge a ringing/tracking alarm from this action.
+            if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            val armed = AlarmStore.read(this)
+            if (!armed.enabled) return@setOnClickListener
+            selectedMode = armed.mode
+            from = armed.firstMinute
+            until = armed.lastMinute
+            refresh()
+        }
+        gap(root, 15)
 
         settings = column().also { add(root, it) }
         val settingsColumn = settings as LinearLayout
@@ -197,11 +246,48 @@ class MainActivity : Activity() {
         cancel = pill("Geplande wekker annuleren", card, warn)
         add(settingsColumn, cancel)
         cancel.setOnClickListener {
-            if (!AlarmStore.isRinging(this) && !AlarmStore.isTracking(this)) {
-                AlarmScheduler.cancel(this)
-                AlarmStore.setDisabled(this)
-                refresh()
-            }
+            // A tiny Watch display makes one-tap cancellation hazardous.
+            // Show the exact persisted schedule and require a deliberate second
+            // tap; never use unsaved edits as the identity of the armed alarm.
+            if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            val armed = AlarmStore.read(this)
+            if (!armed.enabled) return@setOnClickListener
+            AlertDialog.Builder(this)
+                .setTitle("Geplande wekker annuleren?")
+                .setMessage(plannedAlarmSummary(armed) +
+                    "\n\nDeze wekker gaat dan niet meer af. " +
+                    "Wijzigingen in het formulier zijn nog niet opgeslagen.")
+                .setNegativeButton("Wekker behouden", null)
+                .setPositiveButton("Ja, annuleren") { _, _ ->
+                    val current = AlarmStore.read(this)
+                    // A pending dialog must not cancel a different, newer
+                    // schedule or dismiss a tracking/ringing alarm.
+                    if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this) ||
+                        !current.enabled || current != armed) {
+                        Toast.makeText(this, "Wekker gewijzigd; annuleren afgebroken.",
+                            Toast.LENGTH_SHORT).show()
+                    } else if (!AlarmStore.setDisabled(this)) {
+                        // An OS cancellation first, followed by failed local
+                        // persistence, could leave a falsely green saved alarm.
+                        // Keep the original timer when the durable write fails.
+                        Toast.makeText(this, "Annuleren mislukt; vorige wekker behouden.",
+                            Toast.LENGTH_LONG).show()
+                    } else {
+                        // The receiver ignores any delayed PendingIntent after
+                        // disabled state is committed. A cancelled OS timer is
+                        // no longer allowed to ring from stale dispatch.
+                        try {
+                            AlarmScheduler.cancel(this)
+                            Toast.makeText(this, "Geplande wekker geannuleerd",
+                                Toast.LENGTH_SHORT).show()
+                        } catch (failure: Exception) {
+                            Toast.makeText(this,
+                                "Wekker uitgeschakeld; controleer Android-alarmen.",
+                                Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    refresh()
+                }.show()
         }
         gap(settingsColumn, 18)
 
@@ -245,22 +331,92 @@ class MainActivity : Activity() {
         }
         add(root, text("Dit is alleen een korte test van de trilmotor.", 10f, muted))
         gap(root, 8)
-        val trial = pill("Volledige wekker testen (continu)", card, mint)
+        trial = pill("Volledige wekker testen (continu)", card, mint)
         add(root, trial)
+        trialHint = text("", 11f, muted).apply {
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+        }
+        add(root, trialHint)
         trial.setOnClickListener {
+            // A full rehearsal previously replaced the persisted real alarm
+            // and cancelled its Android PendingIntents. This is never a safe
+            // side effect of a mere rehearsal, particularly before bedtime.
             if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this)) return@setOnClickListener
+            val armed = AlarmStore.read(this)
+            if (armed.enabled) {
+                AlertDialog.Builder(this)
+                    .setTitle("Je geplande wekker blijft behouden")
+                    .setMessage(plannedAlarmSummary(armed) +
+                        "\n\nDe volledige trilproef kan een ingestelde wekker " +
+                        "vervangen. Daarom is de proef geblokkeerd zolang een " +
+                        "wekker gepland is. Gebruik de 1-seconde trilmotortest " +
+                        "hierboven, of annuleer eerst bewust je geplande wekker.")
+                    .setPositiveButton("Begrepen", null)
+                    .show()
+                return@setOnClickListener
+            }
             AlertDialog.Builder(this)
-                .setTitle("Wekker testen?")
-                .setMessage("De wekker trilt zonder geluid totdat je horloge oplaadt. Houd de oplader bij de hand.")
+                .setTitle("Volledige trilproef starten?")
+                .setMessage("Er is geen wekker gepland. De proef trilt " +
+                    "zonder geluid totdat het horloge oplaadt. Houd de oplader " +
+                    "bij de hand. Wil je daarna wakker worden, stel dan " +
+                    "zelf nog een echte wekker in.")
                 .setNegativeButton("Terug", null)
-                .setPositiveButton("Start test") { _, _ ->
+                .setPositiveButton("Start proef") { _, _ ->
+                    // The user may have armed a real alarm while the dialog
+                    // was open. Recheck *before* every durable write/cancel.
+                    if (AlarmStore.isRinging(this) || AlarmStore.isTracking(this) ||
+                        AlarmStore.read(this).enabled) {
+                        Toast.makeText(this,
+                            "Wekker gewijzigd; proef niet gestart.",
+                            Toast.LENGTH_LONG).show()
+                        refresh()
+                        return@setPositiveButton
+                    }
                     val now = System.currentTimeMillis()
-                    AlarmScheduler.cancel(this)
-                    AlarmStore.save(this, AlarmConfig(AlarmMode.FIXED, from, until,
-                        now, now, true))
-                    WakeService.send(this, WakeService.RING)
-                    handler.postDelayed({ refresh() }, 500)
+                    val testAlarm = AlarmConfig(AlarmMode.FIXED, from, until,
+                        now, now, true)
+                    if (!AlarmStore.savePending(this, testAlarm)) {
+                        Toast.makeText(this, "Proef niet opgeslagen; geen wekker gewijzigd.",
+                            Toast.LENGTH_LONG).show()
+                        refresh()
+                        return@setPositiveButton
+                    }
+                    try {
+                        // There is no previously armed alarm to sacrifice.
+                        // Cleanup removes only orphaned old PendingIntents.
+                        AlarmScheduler.cancel(this)
+                        WakeService.send(this, WakeService.RING)
+                    } catch (failure: Exception) {
+                        // Do not leave a phantom enabled alarm after service
+                        // admission fails. A real scheduled alarm was never
+                        // overwritten because admission was denied above.
+                        val cleared = AlarmStore.setDisabled(this)
+                        Toast.makeText(this, if (cleared)
+                            "Proef starten mislukt. Geen wekker gepland."
+                        else
+                            "Proef mislukt; tijdelijke alarmstatus kon niet worden " +
+                            "gewist. Controleer het scherm en de opslag.",
+                            Toast.LENGTH_LONG).show()
+                    }
+                    refresh()
                 }.show()
+        }
+    }
+
+    private fun requestExactAlarmAccess() {
+        if (Build.VERSION.SDK_INT < 31 || AlarmScheduler.canSchedule(this)) {
+            refresh()
+            return
+        }
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+        } catch (unavailable: Exception) {
+            // Some Wear OS builds do not expose the expected settings Activity.
+            // Saving still remains blocked; never silently pretend permission exists.
+            Toast.makeText(this,
+                "Open Wear OS-instellingen en geef toestemming voor exacte alarmen.",
+                Toast.LENGTH_LONG).show()
         }
     }
 
@@ -271,7 +427,7 @@ class MainActivity : Activity() {
         }
         if (!AlarmScheduler.canSchedule(this)) {
             Toast.makeText(this, "Sta exacte alarmen toe", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+            requestExactAlarmAccess()
             return
         }
         try {
@@ -279,22 +435,71 @@ class MainActivity : Activity() {
                 System.currentTimeMillis(), ZoneId.systemDefault())
             val next = AlarmConfig(selectedMode, from, until,
                 times.earliestMs, times.latestMs, true)
-            AlarmScheduler.schedule(this, next)
-            AlarmStore.save(this, next)
+            AlarmScheduler.armAndSave(this, next)
             refresh()
             Toast.makeText(this, "Wekker ingesteld ✓", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
+            refresh() // An unsuccessful rearm may have disabled an unsafe old state.
             Toast.makeText(this, e.message ?: "Kon wekker niet instellen", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun formatMinute(min: Int) = "%02d:%02d".format(min / 60, min % 60)
+
+    // Show the actual scheduled INSTANT, including its UTC offset. On the
+    // autumn clock rollback both 02:30+02:00 and 02:30+01:00 exist, so
+    // the wall-clock digits alone are not enough for a trustworthy preview.
+    private fun plannedAlarmSummary(c: AlarmConfig, previewOnly: Boolean = false): String {
+        val zone = ZoneId.systemDefault()
+        val display = DateTimeFormatter.ofPattern("EEE d MMM HH:mm XXX")
+        val earliest = Instant.ofEpochMilli(c.earliestMs).atZone(zone).format(display)
+        if (c.mode != AlarmMode.SMART) return if (previewOnly) "Vaste tijd $earliest" else "✓  Gepland $earliest"
+        val latest = Instant.ofEpochMilli(c.latestMs).atZone(zone).format(display)
+        return (if (previewOnly) "" else "✓  ") + "Slim vanaf $earliest\nUiterlijk $latest"
+    }
     private fun refresh() {
         if (!::status.isInitialized) return
         val c = AlarmStore.read(this)
         val ringing = AlarmStore.isRinging(this)
         val tracking = AlarmStore.isTracking(this)
         val smart = selectedMode == AlarmMode.SMART
+        // The form is an editable draft. It does NOT update an armed alarm until Save.
+        // Keep the main display bound to persisted schedule data, not unsaved inputs.
+        val overdue = c.enabled && !ringing && !tracking &&
+            c.latestMs <= System.currentTimeMillis()
+        val unconfirmedExpired = !c.enabled && !ringing && !tracking &&
+            AlarmStore.hasUnconfirmedExpiry(this)
+        val pending = c.enabled && (selectedMode != c.mode ||
+            from != c.firstMinute || until != c.lastMinute)
+        val scheduledStart = if (c.enabled) Instant.ofEpochMilli(c.earliestMs)
+            .atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) else null
+        pendingNotice.visibility = if (pending && !ringing && !tracking) View.VISIBLE else View.GONE
+        restoreScheduled.visibility = pendingNotice.visibility
+        val permissionMissing = !ringing && !tracking && !AlarmScheduler.canSchedule(this)
+        exactAlarmWarning.visibility = if (permissionMissing) View.VISIBLE else View.GONE
+        exactAlarmSettings.visibility = exactAlarmWarning.visibility
+        if (permissionMissing) exactAlarmWarning.text =
+            "EXACTE ALARMTOESTEMMING ONTBREEKT\n" +
+            "Een nieuwe wekker kan niet worden gepland; controleer ook je al ingestelde wekker."
+        // Preview the proposed NEXT actual instant, never the current saved
+        // schedule. This is informational; only an explicit Save arms a wake.
+        val showPreview = (!c.enabled || pending) && !ringing && !tracking
+        draftPreview.visibility = if (showPreview) View.VISIBLE else View.GONE
+        if (showPreview) {
+            draftPreview.text = try {
+                val proposed = TimePlanner.next(selectedMode, from, until,
+                    System.currentTimeMillis(), ZoneId.systemDefault())
+                val candidate = AlarmConfig(selectedMode, from, until,
+                    proposed.earliestMs, proposed.latestMs, true)
+                "VOORBEELD BIJ OPSLAAN · NOG NIET ACTIEF\n" + plannedAlarmSummary(candidate, previewOnly = true)
+            } catch (invalid: IllegalArgumentException) {
+                "NOG NIET IN TE STELLEN\n" +
+                    (invalid.message ?: "Kies een geldig wekvenster.")
+            }
+        }
+        if (pending) pendingNotice.text =
+            "NIET OPGESLAGEN\nDe bestaande wekker blijft ingesteld. " +
+            "Stel de nieuwe tijd in of draai je invoerwijzigingen terug."
         fixedTab.background = shape(if (smart) card else mint, 24)
         smartTab.background = shape(if (smart) mint else card, 24)
         fixedTab.setTextColor(if (smart) muted else ink)
@@ -302,23 +507,35 @@ class MainActivity : Activity() {
         timePrimary.text = formatMinute(from)
         timeSecondary.text = formatMinute(until)
         windowGroup.visibility = if (smart) View.VISIBLE else View.GONE
-        heroTime.text = if (ringing) "OPSTAAN" else formatMinute(from)
+        heroTime.text = when {
+            ringing -> "OPSTAAN"
+            scheduledStart != null -> scheduledStart
+            else -> formatMinute(from)
+        }
         heroTime.textSize = if (ringing) 32f else 49f
         heroCaption.text = when {
             ringing -> "Stoppen kan alleen op de oplader"
             tracking -> "Zoeken naar het juiste wekmoment"
+            overdue -> "Gepland tijdstip is verstreken"
+            unconfirmedExpired -> "Wekactie na herstart niet bevestigd"
+            pending -> "Geplande tijd · invoer nog niet opgeslagen"
+            c.enabled && c.mode == AlarmMode.SMART -> "Gepland slim wekvenster vanaf"
+            c.enabled -> "Geplande vaste wektijd"
             smart -> "Wakker worden binnen je tijdvak"
             else -> "Alleen trillen, geen snooze"
         }
         status.text = when {
             ringing -> "●  WEKKER ACTIEF"
             tracking -> "●  SLIM WEKVENSTER ACTIEF"
-            c.enabled -> "✓  Gepland " +
-                Instant.ofEpochMilli(c.earliestMs).atZone(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ofPattern("EEE d MMM HH:mm"))
+            overdue -> "⚠  WEKTIJD VERSTREKEN · controleer of je wekker ging\n" +
+                plannedAlarmSummary(c)
+            unconfirmedExpired -> "⚠  WEKACTIE NIET BEVESTIGD NA HERSTART OF KLOKCORRECTIE\n" +
+                plannedAlarmSummary(c) +
+                "\nPlan expliciet een nieuwe wekker. Gebruik voorlopig een reservewekker."
+            c.enabled -> plannedAlarmSummary(c)
             else -> "●  GEEN WEKKER GEPLAND"
         }
-        status.setTextColor(if (ringing) warn else mint)
+        status.setTextColor(if (ringing || overdue || unconfirmedExpired) warn else mint)
         settings.visibility = if (ringing || tracking) View.GONE else View.VISIBLE
         ringingPane.visibility = if (ringing) View.VISIBLE else View.GONE
         if (ringing) {
@@ -326,6 +543,15 @@ class MainActivity : Activity() {
                 "Opladen gedetecteerd ✓" else "Wachten op oplader…"
         }
         cancel.visibility = if (c.enabled && !ringing && !tracking) View.VISIBLE else View.GONE
+        // Inform the operator *before* opening the confirmation sheet.
+        // Keep the short motor test available without altering saved alarms.
+        trialHint.text = when {
+            ringing || tracking -> "Een actieve wekker mag alleen via opladen stoppen."
+            c.enabled -> "Volledige proef geblokkeerd: ingestelde wekker blijft behouden. " +
+                "Gebruik 'Trilmotor testen (1 sec)'."
+            else -> "Geen wekker gepland · proef trilt door tot opladen."
+        }
+        trial.setTextColor(if (c.enabled) muted else mint)
     }
 
 

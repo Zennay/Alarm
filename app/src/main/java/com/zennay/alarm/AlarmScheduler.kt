@@ -18,23 +18,125 @@ object AlarmScheduler {
     fun canSchedule(c: Context): Boolean =
         Build.VERSION.SDK_INT < 31 || alarmManager(c).canScheduleExactAlarms()
 
-    fun schedule(c: Context, config: AlarmConfig) {
-        require(config.enabled && config.earliestMs > System.currentTimeMillis())
-        check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
-        cancel(c)
+    private fun showIntent(c: Context): PendingIntent = PendingIntent.getActivity(
+        c, 0, Intent(c, MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    /**
+     * Configure the hard deadline first and arm START last. A very-near START
+     * must never fire while its new deadline is still being configured; if the
+     * START request is rejected, the caller restores the previous schedule.
+     */
+    private fun programFuture(c: Context, config: AlarmConfig) {
         val am = alarmManager(c)
-        val show = PendingIntent.getActivity(
-            c, 0, Intent(c, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        am.setAlarmClock(
-            AlarmManager.AlarmClockInfo(config.earliestMs, show),
-            intent(c, AlarmReceiver.START, 101)
-        )
         if (config.mode == AlarmMode.SMART) {
             am.setExactAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP, config.latestMs,
                 intent(c, AlarmReceiver.DEADLINE, 102)
+            )
+        } else {
+            am.cancel(intent(c, AlarmReceiver.DEADLINE, 102))
+        }
+        am.setAlarmClock(
+            AlarmManager.AlarmClockInfo(config.earliestMs, showIntent(c)),
+            intent(c, AlarmReceiver.START, 101)
+        )
+    }
+
+    /** Reconstitute a persisted, still-upcoming alarm after a partial failure.
+     * An already-started smart window keeps its remaining hard deadline;
+     * an expired one-shot must not spontaneously ring after recovery. */
+    private fun cancelStartAndDeadline(c: Context) {
+        val am = alarmManager(c)
+        am.cancel(intent(c, AlarmReceiver.START, 101))
+        am.cancel(intent(c, AlarmReceiver.DEADLINE, 102))
+    }
+
+    /** A failed new schedule must not leave its PendingIntents armed. */
+    private fun failSafeAfterRestore(c: Context, previous: AlarmStoreSnapshot) {
+        cancelStartAndDeadline(c)
+        if (!previous.ringing && !previous.tracking) {
+            val now = System.currentTimeMillis()
+            if (previous.config.enabled && previous.config.latestMs <= now) {
+                AlarmStore.expireUnconfirmed(c)
+            } else {
+                AlarmStore.setDisabled(c)
+            }
+        }
+        // If a ring is already active, preserve its service and recovery
+        // watchdog; only the attempted replacement schedule is removed.
+    }
+
+    /** Restore durable config first, then restore only the matching OS alarms. */
+    private fun restorePrevious(c: Context, previous: AlarmStoreSnapshot): Boolean {
+        if (!AlarmStore.restore(c, previous)) return false
+        val config = previous.config
+        if (!config.enabled || previous.ringing) {
+            cancelStartAndDeadline(c)
+            return true
+        }
+        val now = System.currentTimeMillis()
+        return try {
+            when {
+                config.earliestMs > now -> programFuture(c, config)
+                config.mode == AlarmMode.SMART && config.latestMs > now -> {
+                    alarmManager(c).cancel(intent(c, AlarmReceiver.START, 101))
+                    restoreDeadline(c, config.latestMs)
+                }
+                else -> {
+                    cancelStartAndDeadline(c)
+                    return false
+                }
+            }
+            true
+        } catch (failure: Exception) {
+            Log.e("AlarmScheduler", "Previous alarm could not be restored", failure)
+            false
+        }
+    }
+
+    /** Arm an exact alarm without first destroying the previous pending alarm. */
+    /**
+     * Every public schedule request follows the same durable commit/rollback
+     * contract. Keep the raw AlarmManager programming primitive private.
+     */
+    fun schedule(c: Context, config: AlarmConfig) = armAndSave(c, config)
+
+    /** Persist the new alarm before claiming success in the watch UI.
+     * On a storage failure, re-arm the previously saved schedule. */
+    fun armAndSave(c: Context, config: AlarmConfig) {
+        require(config.enabled && config.earliestMs > System.currentTimeMillis())
+        check(canSchedule(c)) { "Geef de app toestemming voor exacte alarmen." }
+        val previous = AlarmStore.snapshot(c)
+        check(!previous.ringing && !previous.tracking) {
+            "Stop de actieve wekker voordat je de planning wijzigt."
+        }
+
+        // Commit the schedule before installing its PendingIntents. Otherwise
+        // a near-minute START could arrive while AlarmReceiver still sees the
+        // old saved times and incorrectly discard or misclassify the alarm.
+        if (!AlarmStore.savePending(c, config)) {
+            val restored = restorePrevious(c, previous)
+            if (!restored) failSafeAfterRestore(c, previous)
+            throw IllegalStateException(
+                if (restored) "Wekker niet veilig opgeslagen; vorige status hersteld."
+                else "Wekker niet veilig opgeslagen; controleer en stel hem opnieuw in."
+            )
+        }
+
+        try {
+            // START is programmed last by programFuture(); no post-start state
+            // write can overwrite a real wake event recorded by the receiver.
+            programFuture(c, config)
+        } catch (failure: Exception) {
+            // Restore the old durable state before re-arming the old OS alarm.
+            val restored = restorePrevious(c, previous)
+            if (!restored) failSafeAfterRestore(c, previous)
+            throw IllegalStateException(
+                if (restored) "Nieuwe planning mislukt; vorige status is hersteld."
+                else "Wekker instellen mislukt; controleer en stel je wekker opnieuw in.",
+                failure
             )
         }
     }

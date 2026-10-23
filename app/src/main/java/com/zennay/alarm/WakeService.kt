@@ -60,8 +60,9 @@ class WakeService : Service(), SensorEventListener {
             lastChargingState = state
         }
         if (chargingConfirmation.observe(state.charging, SystemClock.elapsedRealtime())) {
-            dismissForCharging()
-            return true
+            // A verified charging signal only authorizes dismissal. Never
+            // report it completed until the disabled state is durable.
+            return dismissForCharging()
         }
         return false
     }
@@ -166,7 +167,9 @@ class WakeService : Service(), SensorEventListener {
         if (!config.enabled) { stopSelf(); return }
         if (System.currentTimeMillis() >= config.latestMs) { ring(); return }
         foreground("Slim wekvenster", "Beweging volgen tot je uiterste wektijd")
-        AlarmStore.setTracking(this)
+        if (!AlarmStore.setTracking(this)) {
+            Log.e(TAG, "Smart tracking state could not be persisted; hard deadline remains armed")
+        }
         gate = MotionGate(config.earliestMs)
         hold(config.latestMs - System.currentTimeMillis() + 60_000)
         sensors.unregisterListener(this)
@@ -184,7 +187,9 @@ class WakeService : Service(), SensorEventListener {
         lastChargingState = null
         sensors.unregisterListener(this)
         gate = null
-        AlarmStore.setRinging(this, true)
+        if (!AlarmStore.setRinging(this, true)) {
+            Log.e(TAG, "Ringing state could not be persisted; service recovery may not survive process loss")
+        }
         AlarmScheduler.scheduleRecovery(this)
         foreground("Tijd om op te staan", "Plaats je horloge op de oplader om te stoppen")
         hold(90L * 60_000)
@@ -238,20 +243,34 @@ class WakeService : Service(), SensorEventListener {
         }
     }
 
-    private fun dismissForCharging() {
-        if (!ringing || !AlarmStore.isRinging(this)) return
-        Log.i(TAG, "CHARGING_DETECTED: dismiss active ringing alarm")
+    private fun dismissForCharging(): Boolean {
+        if (!ringing || !AlarmStore.isRinging(this)) return false
+        // Preference commit can fail (for example during low-storage or OS
+        // disruption). Cancelling haptics/recovery first would acknowledge an
+        // alarm that is still persistently marked as ringing. Keep sounding
+        // and retry while the true charger signal remains stable.
+        if (!AlarmStore.setDisabled(this)) {
+            Log.e(TAG, "Charging confirmed but alarm dismissal was not stored; retrying")
+            return false
+        }
+        Log.i(TAG, "CHARGING_DETECTED: persisted dismissal of active alarm")
         ringing = false
         handler.removeCallbacks(pollCharging)
         handler.removeCallbacks(keepVibrating)
-        AlarmScheduler.cancel(this)
-        AlarmStore.setDisabled(this)
+        // Once persistent state is disabled, an in-flight receiver refuses
+        // to restart the old alarm even if OS PendingIntent cancellation fails.
+        try {
+            AlarmScheduler.cancel(this)
+        } catch (failure: Exception) {
+            Log.w(TAG, "Persisted dismissal succeeded; Android timer cleanup deferred", failure)
+        }
         vibrator?.cancel()
         disarmChargingReceiver()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        return true
     }
 
     private fun disarmChargingReceiver() {
@@ -271,10 +290,11 @@ class WakeService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     override fun onDestroy() {
-        Log.w(TAG, "SERVICE_DESTROYED ringing=${AlarmStore.isRinging(this)}")
+        val alarmStillActive = AlarmStore.isRinging(this)
+        Log.w(TAG, "SERVICE_DESTROYED ringing=$alarmStillActive")
         // An Android lifecycle teardown is NOT user dismissal. Keep a recovery
         // wakeup pending so the charge-only alarm can resume after service loss.
-        if (AlarmStore.isRinging(this)) {
+        if (alarmStillActive) {
             try { AlarmScheduler.scheduleRecovery(this, 10_000L) }
             catch (e: Exception) { Log.e(TAG, "Alarm recovery scheduling failed", e) }
         }
@@ -282,7 +302,11 @@ class WakeService : Service(), SensorEventListener {
         handler.removeCallbacks(keepVibrating)
         disarmChargingReceiver()
         sensors.unregisterListener(this)
-        vibrator?.cancel()
+        // Do not cancel a repeating haptic waveform merely because Android
+        // destroys this Service while the alarm is still active. The current
+        // waveform may continue until recovery re-arms it; an OS process kill
+        // can still stop it, so this is not an unkillable-alarm guarantee.
+        if (!alarmStillActive) vibrator?.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
     }

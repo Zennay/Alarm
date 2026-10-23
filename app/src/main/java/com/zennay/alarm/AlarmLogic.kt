@@ -19,17 +19,31 @@ object TimePlanner {
         val interval = (endMinute - startMinute + 1440) % 1440
         if (mode == AlarmMode.SMART) require(interval in 5..90) { "Kies een wekvenster van 5 tot 90 minuten." }
         val now = Instant.ofEpochMilli(nowMs).atZone(zone)
-        var day = now.toLocalDate()
-        var early = localAt(day, startMinute, zone)
-        if (!early.isAfter(now)) {
-            day = day.plusDays(1)
-            early = localAt(day, startMinute, zone)
-        }
+        // A civil time can happen twice on autumn DST rollback. Select the
+        // earliest *future instant*, not always the earlier UTC offset.
+        val early = nextLocalOccurrence(now.toLocalDate(), startMinute, now, zone)
         val late = if (mode == AlarmMode.FIXED) early else {
             // Offset on the instant timeline avoids a negative interval at the DST transition.
             early.plusMinutes(interval.toLong())
         }
         return AlarmTimes(early.toInstant().toEpochMilli(), late.toInstant().toEpochMilli())
+    }
+
+    private fun nextLocalOccurrence(
+        day: LocalDate, minuteOfDay: Int, now: ZonedDateTime, zone: ZoneId
+    ): ZonedDateTime {
+        val local = LocalDateTime.of(
+            day, java.time.LocalTime.of(minuteOfDay / 60, minuteOfDay % 60)
+        )
+        // ZoneRules gives BOTH legal offsets when clocks fall back. For a
+        // spring-forward gap there is no legal offset: retain Java's existing
+        // atZone gap resolution rather than silently skipping the alarm.
+        val offsets = zone.rules.getValidOffsets(local)
+        val today = if (offsets.isEmpty()) listOf(local.atZone(zone)) else
+            offsets.map { offset -> ZonedDateTime.ofLocal(local, zone, offset) }
+        return today.filter { it.isAfter(now) }
+            .minByOrNull { it.toInstant() }
+            ?: localAt(day.plusDays(1), minuteOfDay, zone)
     }
 
     private fun localAt(day: LocalDate, minuteOfDay: Int, zone: ZoneId): ZonedDateTime =
@@ -50,11 +64,35 @@ class MotionGate(private val windowStartMs: Long) {
     private var total = 0.0
     private var count = 0
     private var activeBuckets = 0
+    private var lastSampleMs = -1L
     var triggered = false
         private set
 
     fun record(timeMs: Long, x: Float, y: Float, z: Float): Boolean {
         if (triggered || timeMs < windowStartMs) return triggered
+        if (!x.isFinite() || !y.isFinite() || !z.isFinite()) {
+            // Corrupt sensor samples must never be mistaken for movement.
+            // Require two fresh, complete buckets before an early wake.
+            prev = false
+            bucketStart = -1L
+            lastSampleMs = -1L
+            activeBuckets = 0
+            total = 0.0
+            count = 0
+            return false
+        }
+        // Sensor callbacks can pause when Wear OS throttles background work.
+        // Two 'consecutive' buckets separated by a long gap are not evidence
+        // of continuous stirring. A clock jump backwards is equally stale.
+        if (lastSampleMs >= 0L &&
+            (timeMs < lastSampleMs || timeMs - lastSampleMs > 5_000L)) {
+            prev = false
+            bucketStart = -1L
+            activeBuckets = 0
+            total = 0.0
+            count = 0
+        }
+        lastSampleMs = timeMs
         if (bucketStart == -1L) bucketStart = timeMs
         if (prev && timeMs - bucketStart < 15_000) {
             val dx = (x - px).toDouble()
@@ -65,8 +103,16 @@ class MotionGate(private val windowStartMs: Long) {
         }
         if (timeMs - bucketStart >= 15_000) {
             val averageDelta = if (count > 0) total / count else 0.0
-            activeBuckets = if (averageDelta > 0.65) activeBuckets + 1 else 0
-            if (timeMs - windowStartMs >= 120_000 && activeBuckets >= 2) triggered = true
+            // Two complete 15-second buckets must START after the two-minute
+            // warm-up. Before this fix an active bucket from minute 1:45
+            // could count toward the early wake exactly at minute 2:00.
+            val afterWarmup = bucketStart - windowStartMs >= 120_000L
+            // One isolated accelerometer spike in a sparsely sampled 15s
+            // interval is not sustained stirring. Require enough real vector
+            // deltas before accepting each of the two motion buckets.
+            activeBuckets = if (afterWarmup && count >= 4 && averageDelta > 0.65)
+                activeBuckets + 1 else 0
+            if (activeBuckets >= 2) triggered = true
             bucketStart = timeMs
             total = 0.0
             count = 0
