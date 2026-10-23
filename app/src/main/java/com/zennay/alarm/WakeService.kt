@@ -167,7 +167,9 @@ class WakeService : Service(), SensorEventListener {
         if (!config.enabled) { stopSelf(); return }
         if (System.currentTimeMillis() >= config.latestMs) { ring(); return }
         foreground("Slim wekvenster", "Beweging volgen tot je uiterste wektijd")
-        AlarmStore.setTracking(this)
+        if (!AlarmStore.setTracking(this)) {
+            Log.e(TAG, "Smart tracking state could not be persisted; hard deadline remains armed")
+        }
         gate = MotionGate(config.earliestMs)
         hold(config.latestMs - System.currentTimeMillis() + 60_000)
         sensors.unregisterListener(this)
@@ -185,7 +187,9 @@ class WakeService : Service(), SensorEventListener {
         lastChargingState = null
         sensors.unregisterListener(this)
         gate = null
-        AlarmStore.setRinging(this, true)
+        if (!AlarmStore.setRinging(this, true)) {
+            Log.e(TAG, "Ringing state could not be persisted; service recovery may not survive process loss")
+        }
         AlarmScheduler.scheduleRecovery(this)
         foreground("Tijd om op te staan", "Plaats je horloge op de oplader om te stoppen")
         hold(90L * 60_000)
