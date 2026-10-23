@@ -376,7 +376,7 @@ class MainActivity : Activity() {
                     val now = System.currentTimeMillis()
                     val testAlarm = AlarmConfig(AlarmMode.FIXED, from, until,
                         now, now, true)
-                    if (!AlarmStore.save(this, testAlarm)) {
+                    if (!AlarmStore.savePending(this, testAlarm)) {
                         Toast.makeText(this, "Proef niet opgeslagen; geen wekker gewijzigd.",
                             Toast.LENGTH_LONG).show()
                         refresh()
