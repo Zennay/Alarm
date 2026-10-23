@@ -81,12 +81,16 @@ object AlarmStore {
             .commit()
 
 
-    fun setRinging(context: Context, value: Boolean) {
-        pref(context).edit().putBoolean("ringing", value).putBoolean("tracking", !value).apply()
-    }
-    fun setTracking(context: Context) {
-        pref(context).edit().putBoolean("tracking", true).putBoolean("ringing", false).apply()
-    }
+    /**
+     * These flags control service recovery after Android lifecycle interruption.
+     * Persist synchronously so a newly ringing/tracking alarm is not only an
+     * in-memory state when the service schedules its recovery path.
+     */
+    fun setRinging(context: Context, value: Boolean): Boolean =
+        pref(context).edit().putBoolean("ringing", value).putBoolean("tracking", !value).commit()
+
+    fun setTracking(context: Context): Boolean =
+        pref(context).edit().putBoolean("tracking", true).putBoolean("ringing", false).commit()
     fun isRinging(context: Context) = pref(context).getBoolean("ringing", false)
     fun isTracking(context: Context) = pref(context).getBoolean("tracking", false)
     /**
