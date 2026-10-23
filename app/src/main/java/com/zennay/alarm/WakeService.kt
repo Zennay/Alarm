@@ -286,10 +286,11 @@ class WakeService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     override fun onDestroy() {
-        Log.w(TAG, "SERVICE_DESTROYED ringing=${AlarmStore.isRinging(this)}")
+        val alarmStillActive = AlarmStore.isRinging(this)
+        Log.w(TAG, "SERVICE_DESTROYED ringing=$alarmStillActive")
         // An Android lifecycle teardown is NOT user dismissal. Keep a recovery
         // wakeup pending so the charge-only alarm can resume after service loss.
-        if (AlarmStore.isRinging(this)) {
+        if (alarmStillActive) {
             try { AlarmScheduler.scheduleRecovery(this, 10_000L) }
             catch (e: Exception) { Log.e(TAG, "Alarm recovery scheduling failed", e) }
         }
@@ -297,7 +298,11 @@ class WakeService : Service(), SensorEventListener {
         handler.removeCallbacks(keepVibrating)
         disarmChargingReceiver()
         sensors.unregisterListener(this)
-        vibrator?.cancel()
+        // Do not cancel a repeating haptic waveform merely because Android
+        // destroys this Service while the alarm is still active. The current
+        // waveform may continue until recovery re-arms it; an OS process kill
+        // can still stop it, so this is not an unkillable-alarm guarantee.
+        if (!alarmStillActive) vibrator?.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
     }
